@@ -1,0 +1,45 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: inventory-service
+  datasource:
+    url: ${INVENTORY_DB_URL:jdbc:postgresql://localhost:5435/inventory}
+    username: ${INVENTORY_DB_USER:inventory}
+    password: ${INVENTORY_DB_PASSWORD:inventory}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # O schema é responsabilidade exclusiva do Flyway; o Hibernate apenas valida.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    com.ecommerce: DEBUG

@@ -1,0 +1,98 @@
+# Etapa 1: apenas os bancos de dados (um por serviço).
+# Kafka entra na etapa 4 e os próprios serviços na etapa 9.
+name: ecommerce
+
+services:
+  auth-db:
+    image: postgres:16-alpine
+    container_name: ecommerce-auth-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: ${AUTH_DB_USER:-auth}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-auth}
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth} -d auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecommerce
+
+  orders-db:
+    image: postgres:16-alpine
+    container_name: ecommerce-orders-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: ${ORDERS_DB_USER:-orders}
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD:-orders}
+    ports:
+      - "5434:5432"
+    volumes:
+      - orders-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDERS_DB_USER:-orders} -d orders"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecommerce
+
+  inventory-db:
+    image: postgres:16-alpine
+    container_name: ecommerce-inventory-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inventory
+      POSTGRES_USER: ${INVENTORY_DB_USER:-inventory}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD:-inventory}
+    ports:
+      - "5435:5432"
+    volumes:
+      - inventory-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INVENTORY_DB_USER:-inventory} -d inventory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecommerce
+
+  notification-db:
+    image: postgres:16-alpine
+    container_name: ecommerce-notification-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: notification
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:-notification}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification}
+    ports:
+      - "5436:5432"
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DB_USER:-notification} -d notification"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecommerce
+
+volumes:
+  auth-db-data:
+  orders-db-data:
+  inventory-db-data:
+  notification-db-data:
+
+networks:
+  ecommerce:
+    driver: bridge
