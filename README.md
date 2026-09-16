@@ -152,6 +152,32 @@ Dois campos são provisórios e saem em etapas seguintes: `customerId` no corpo 
 requisição passa a vir do JWT (etapa 6) e `unitPrice` passa a ser consultado no
 inventory-service (etapa 3) — preço não é algo que o cliente deva informar.
 
+## API do inventory-service
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/api/v1/products` | Cadastra um produto e abre sua linha de estoque. |
+| `GET` | `/api/v1/products/{id}` | Busca um produto. |
+| `GET` | `/api/v1/products/by-ids?ids=` | Consulta em lote, usada pelo orders-service. |
+| `GET` | `/api/v1/products` | Lista produtos, com busca textual e filtro por situação. |
+| `GET` | `/api/v1/products/{id}/stock` | Consulta disponível e reservado. |
+| `POST` | `/api/v1/products/{id}/stock/replenish` | Dá entrada de estoque. |
+| `POST` | `/api/v1/reservations` | Reserva estoque para um pedido (tudo ou nada, idempotente). |
+| `GET` | `/api/v1/reservations/{orderId}` | Consulta a reserva de um pedido. |
+| `POST` | `/api/v1/reservations/{orderId}/confirm` | Confirma: as unidades saem do estoque. |
+| `POST` | `/api/v1/reservations/{orderId}/release` | Libera: as unidades voltam para disponível. |
+
+O estoque tem duas quantidades: `availableQuantity`, o que pode ser vendido agora,
+e `reservedQuantity`, o que já foi separado para pedidos ainda não resolvidos.
+Reservar move unidades de uma para a outra; confirmar tira as reservadas de vez;
+liberar as devolve.
+
+Reservar usa `SELECT ... FOR UPDATE` sobre a linha de estoque. Sem isso, duas
+requisições simultâneas leriam a mesma disponibilidade e ambas reservariam,
+vendendo estoque que não existe. As linhas são travadas sempre na mesma ordem
+(por id do produto), o que elimina a chance de deadlock entre pedidos que
+compartilham produtos.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -181,7 +207,7 @@ inventory-service (etapa 3) — preço não é algo que o cliente deva informar.
 
 - [x] **1.** Setup do projeto: estrutura multi-módulo, POMs, Docker Compose com os bancos, CI
 - [x] **2.** `orders-service`: entidades, CRUD, DTOs, tratamento de erros e testes
-- [ ] **3.** `inventory-service`: produtos, estoque e reserva
+- [x] **3.** `inventory-service`: produtos, estoque e reserva
 - [ ] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
 - [ ] **5.** `notification-service` consumindo os eventos
 - [ ] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
