@@ -126,6 +126,32 @@ As credenciais de banco são lidas de variáveis de ambiente
 (`ORDERS_DB_URL`, `ORDERS_DB_USER`, `ORDERS_DB_PASSWORD`, e equivalentes para os
 demais serviços), com valores padrão apontando para o `docker-compose.yml`.
 
+## API do orders-service
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/api/v1/orders` | Cria um pedido (`201` + `Location`). O total é calculado a partir dos itens. |
+| `GET` | `/api/v1/orders/{id}` | Busca um pedido com seus itens. |
+| `GET` | `/api/v1/orders` | Lista pedidos, com filtros opcionais `customerId` e `status` e paginação. |
+| `POST` | `/api/v1/orders/{id}/cancel` | Cancela um pedido que ainda esteja pendente. |
+
+Erros seguem RFC 7807:
+
+```json
+{
+  "type": "https://api.ecommerce.com/problems/invalid-order-state",
+  "title": "Transição de status inválida",
+  "status": 409,
+  "detail": "Apenas pedidos pendentes podem ser cancelados; status atual: CANCELLED",
+  "instance": "/api/v1/orders/edad184c-47e6-4ceb-822f-b578c0910a3c/cancel",
+  "timestamp": "2026-01-15T10:00:00Z"
+}
+```
+
+Dois campos são provisórios e saem em etapas seguintes: `customerId` no corpo da
+requisição passa a vir do JWT (etapa 6) e `unitPrice` passa a ser consultado no
+inventory-service (etapa 3) — preço não é algo que o cliente deva informar.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -154,7 +180,7 @@ demais serviços), com valores padrão apontando para o `docker-compose.yml`.
 ## Roadmap
 
 - [x] **1.** Setup do projeto: estrutura multi-módulo, POMs, Docker Compose com os bancos, CI
-- [ ] **2.** `orders-service`: entidades, CRUD, DTOs, tratamento de erros e testes
+- [x] **2.** `orders-service`: entidades, CRUD, DTOs, tratamento de erros e testes
 - [ ] **3.** `inventory-service`: produtos, estoque e reserva
 - [ ] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
 - [ ] **5.** `notification-service` consumindo os eventos
