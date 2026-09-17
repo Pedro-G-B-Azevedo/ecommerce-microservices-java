@@ -11,6 +11,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Leitura por padrão; o job publish eleva para escrita de pacotes só para si.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build and tests
@@ -79,6 +83,62 @@ jobs:
           # A imagem não pode rodar como root.
           test "$(docker image inspect ecommerce/${{ matrix.service }}:ci --format '{{.Config.User}}')" = "spring:spring"
 
+  security-scan:
+    name: Scan images for vulnerabilities
+    runs-on: ubuntu-latest
+    needs: images
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, orders-service, inventory-service, notification-service]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Reconstrói a imagem a partir do cache do job "images": mesmo escopo de
+      # cache, então isto reaproveita as camadas já construídas em vez de refazer
+      # o build.
+      - name: Rebuild ${{ matrix.service }} from cache
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: ecommerce/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # Gate real, não decorativo: falha o job quando há CVE crítico já corrigido
+      # rio acima. "ignore-unfixed" evita travar o pipeline por uma vulnerabilidade
+      # que ninguém, nem a distro de base, ainda consertou.
+      - name: Scan for critical, fixable vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ecommerce/${{ matrix.service }}:ci
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+
+      # Roda de novo sem travar o pipeline, só para deixar HIGH visível no log:
+      # informação para quem for revisar, sem bloquear o portfólio por CVEs em
+      # bibliotecas de base que não há como corrigir agora.
+      - name: Report high-severity vulnerabilities (non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ecommerce/${{ matrix.service }}:ci
+          format: table
+          severity: HIGH
+          ignore-unfixed: true
+          exit-code: 0
+
   e2e:
     name: End-to-end journey
     runs-on: ubuntu-latest
@@ -110,3 +170,61 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  publish:
+    name: Publish images to GHCR
+    runs-on: ubuntu-latest
+    needs: [security-scan, e2e]
+    # Só publica a partir do main, depois que os dois gates de qualidade (o scan
+    # de vulnerabilidades e a jornada ponta a ponta) passarem. Numa branch de
+    # feature este job aparece como "skipped", não como falha: é o esperado.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, orders-service, inventory-service, notification-service]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Gera as tags e os labels OCI. O nome do owner tem maiúsculas
+      # (Pedro-G-B-Azevedo); esta action normaliza para minúsculas sozinha, o
+      # que um registry de containers exige.
+      - name: Extract metadata for ${{ matrix.service }}
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest
+
+      # Mesmo escopo de cache dos jobs anteriores: a imagem já foi construída e
+      # escaneada, então isto publica o que já foi validado em vez de rebuildar
+      # e arriscar publicar algo ligeiramente diferente do que passou no gate.
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

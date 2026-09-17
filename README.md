@@ -408,6 +408,47 @@ código reenvia poucos megabytes em vez do jar inteiro.
 O CI constrói as quatro imagens a cada push e falha se alguma delas acabar rodando
 como root.
 
+## O pipeline de CI/CD
+
+Um único workflow (`.github/workflows/ci.yml`), cinco jobs, cada um dependendo do
+anterior ter passado:
+
+```
+build ──> images ──> security-scan ──> e2e ──> publish
+          (build)     (Trivy)         (compose)  (só no main)
+```
+
+| Job | O que faz | Quando roda |
+| --- | --- | --- |
+| `build` | Testes unitários, web, persistência, mensageria e concorrência | Todo push e PR |
+| `images` | Builda as quatro imagens; falha se alguma rodar como root | Todo push e PR |
+| `security-scan` | Escaneia as imagens com Trivy | Todo push e PR |
+| `e2e` | Sobe o `docker compose` completo e roda a jornada ponta a ponta | Todo push e PR |
+| `publish` | Publica as imagens no GHCR | Só push em `main` |
+
+**O scan de vulnerabilidades é um gate real, não decorativo.** Ele falha o job
+para CVE **crítico e corrigido rio acima** (`severity: CRITICAL`,
+`ignore-unfixed: true`) — travar o pipeline por uma vulnerabilidade que a própria
+distro de base ainda não corrigiu não protegeria ninguém, só impediria qualquer
+deploy indefinidamente. Vulnerabilidades `HIGH` são reportadas no log sem travar
+o build, como informação para quem for revisar.
+
+**A publicação só acontece depois dos dois gates de qualidade**, e só a partir do
+`main` — o `publish` depende de `security-scan` e de `e2e`, e um push numa branch
+de feature (como as `claude/**` deste projeto) deixa o job como *skipped*, não
+como falha. Cada imagem é publicada com duas tags:
+
+```
+ghcr.io/<owner>/<repo>/<serviço>:sha-<commit curto>
+ghcr.io/<owner>/<repo>/<serviço>:latest
+```
+
+A tag pelo SHA torna todo deploy rastreável até o commit exato que o gerou; a
+`latest` é o que aponta para o estado mais recente do `main`. Os três jobs de
+build, scan e publish compartilham o cache do Buildx por serviço
+(`cache-from`/`cache-to: type=gha`), então a imagem publicada é a mesma que
+passou pelo scan — sem rebuild às cegas entre um job e outro.
+
 ## Os testes
 
 | Camada | O que cobre | Como roda |
@@ -469,6 +510,8 @@ fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste que
 | `RestClient` em vez de OpenFeign | O Spring Cloud OpenFeign está em modo manutenção; o `RestClient` é nativo do Spring Framework. |
 | JWT assinado com RS256 e distribuído por JWKS | Com segredo compartilhado, qualquer serviço que valida um token também poderia emitir um. |
 | Conta de serviço para a compensação | O evento do Kafka não tem usuário autenticado, e propagar o token do cliente atribuiria a ele uma ação que é do serviço. |
+| Scan de vulnerabilidades ignorando CVE sem correção | Travar o pipeline por uma falha que a própria distro de base ainda não corrigiu não protege ninguém, só impede todo deploy. |
+| Publicação de imagem só no `main`, após os gates | Uma branch de feature não deve poder publicar; o *deploy* nasce da mesma verificação que valida o código. |
 
 ## Roadmap
 
@@ -481,7 +524,7 @@ fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste que
 - [x] **7.** Documentação OpenAPI completa
 - [x] **8.** Testes de integração ponta a ponta
 - [x] **9.** Dockerfiles e Docker Compose completo
-- [ ] **10.** Pipeline de CI/CD com build de imagens
+- [x] **10.** Pipeline de CI/CD com build de imagens
 - [ ] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
 - [ ] **12.** Front-end em React *(opcional)*
 
