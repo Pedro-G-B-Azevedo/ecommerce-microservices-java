@@ -1,0 +1,14 @@
+# O contexto de build é a raiz do repositório; tudo o que não entra na imagem
+# fica de fora para não invalidar o cache de camadas a cada mudança irrelevante.
+target/
+*/target/
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+node_modules/
+.env
+*.log
+README.md
+docker-compose.yml

@@ -81,14 +81,25 @@ seu banco.
 - Docker e Docker Compose
 - Não é necessário instalar o Maven: use o wrapper (`./mvnw`)
 
-### Subir a infraestrutura
+### Subir tudo
 
 ```bash
-cp .env.example .env     # opcional: ajuste usuários e senhas
-docker compose up -d
+cp .env.example .env     # ajuste usuários e senhas
+docker compose up -d --build
 ```
 
-Isso sobe um PostgreSQL por serviço:
+Sobe os quatro serviços, seus bancos e o Kafka. As dependências são declaradas por
+`healthcheck`, não por ordem de inicialização: o `orders-service` só começa depois
+que o banco aceita conexões, o Kafka responde e o `auth-service` está de pé para
+servir a chave pública.
+
+Para subir apenas a infraestrutura e rodar os serviços pela IDE:
+
+```bash
+docker compose up -d auth-db orders-db inventory-db notification-db kafka
+```
+
+Cada serviço sobe um PostgreSQL próprio:
 
 | Serviço | Banco | Porta do host |
 | --- | --- | --- |
@@ -370,6 +381,33 @@ inventory-service, por exemplo, as quatro leituras de catálogo aparecem abertas
 seis operações restantes aparecem com cadeado. A documentação reflete as regras que
 o `SecurityFilterChain` realmente aplica.
 
+## As imagens
+
+Cada serviço tem um `Dockerfile` multi-estágio na sua pasta. O build é feito a
+partir da **raiz do repositório**, porque é um projeto Maven multi-módulo e cada
+serviço depende do POM pai e do módulo `contracts`:
+
+```bash
+docker build -f orders-service/Dockerfile -t ecommerce/orders-service .
+```
+
+Três decisões:
+
+**Os POMs são copiados antes do código.** Enquanto as dependências não mudarem, o
+Docker reaproveita a camada de download mesmo quando o código muda — o que separa um
+rebuild de segundos de um de minutos.
+
+**O jar é desmontado em camadas** (`jarmode=tools ... extract --layers`). Dependências,
+loader e aplicação viram camadas distintas da imagem, então um deploy que só mudou
+código reenvia poucos megabytes em vez do jar inteiro.
+
+**O processo não roda como root.** A imagem final é um JRE Alpine com um usuário
+`spring` sem privilégios, e a memória é limitada por `MaxRAMPercentage` em vez de um
+`-Xmx` fixo, para que a JVM respeite o limite do container qualquer que seja ele.
+
+O CI constrói as quatro imagens a cada push e falha se alguma delas acabar rodando
+como root.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -409,7 +447,7 @@ o `SecurityFilterChain` realmente aplica.
 - [x] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
 - [x] **7.** Documentação OpenAPI completa
 - [ ] **8.** Testes de integração ponta a ponta
-- [ ] **9.** Dockerfiles e Docker Compose completo
+- [x] **9.** Dockerfiles e Docker Compose completo
 - [ ] **10.** Pipeline de CI/CD com build de imagens
 - [ ] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
 - [ ] **12.** Front-end em React *(opcional)*
