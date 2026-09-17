@@ -512,6 +512,7 @@ fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste que
 | Conta de serviço para a compensação | O evento do Kafka não tem usuário autenticado, e propagar o token do cliente atribuiria a ele uma ação que é do serviço. |
 | Scan de vulnerabilidades ignorando CVE sem correção | Travar o pipeline por uma falha que a própria distro de base ainda não corrigiu não protege ninguém, só impede todo deploy. |
 | Publicação de imagem só no `main`, após os gates | Uma branch de feature não deve poder publicar; o *deploy* nasce da mesma verificação que valida o código. |
+| Tomcat embarcado pinado acima do gerenciado pelo Boot 3.5.16 | O BOM traz `tomcat-embed-core 10.1.55`, com três CVEs críticos já corrigidos rio acima; sobrescrever a versão de um artefato de um BOM `import` exige uma entrada explícita de `dependencyManagement` antes do import, porque a property `${tomcat.version}` já veio resolvida do POM publicado. |
 
 ## Roadmap
 
