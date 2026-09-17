@@ -19,6 +19,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Métricas são dado operacional, não algo que qualquer cliente
+                        // autenticado deva ver; só quem raspa métricas (uma conta de
+                        // serviço) ou administra o sistema.
+                        .requestMatchers("/actuator/prometheus", "/actuator/metrics/**").hasAnyRole("ADMIN", "SERVICE")
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // Criar pedido é coisa de cliente; um administrador não compra
                         // em nome de ninguém.

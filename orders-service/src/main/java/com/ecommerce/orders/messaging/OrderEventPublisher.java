@@ -1,6 +1,8 @@
 package com.ecommerce.orders.messaging;
 
 import com.ecommerce.contracts.Topics;
+import com.ecommerce.orders.observability.CorrelationId;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -36,7 +38,13 @@ public class OrderEventPublisher {
     public void publish(OrderCreatedDomainEvent domainEvent) {
         var payload = domainEvent.payload();
         // A chave é o pedido: mantém a ordem dos eventos de um mesmo pedido.
-        kafkaTemplate.send(Topics.ORDER_CREATED, payload.orderId().toString(), payload);
+        ProducerRecord<String, Object> record = new ProducerRecord<>(
+                Topics.ORDER_CREATED, payload.orderId().toString(), payload);
+        // O AFTER_COMMIT roda na mesma thread da requisição original, então o id de
+        // correlação que o CorrelationIdFilter pôs no MDC ainda está disponível
+        // aqui — é o que faz a saga inteira herdar o mesmo id.
+        CorrelationId.attach(record);
+        kafkaTemplate.send(record);
         log.info("Publicado OrderCreated {} para o pedido {}", payload.eventId(), payload.orderId());
     }
 }

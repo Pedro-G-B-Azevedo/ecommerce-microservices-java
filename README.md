@@ -47,12 +47,13 @@ falhas repetidas vão para um *dead-letter topic*.
 | Persistência | PostgreSQL 16 + Hibernate, migrations com Flyway |
 | Mensageria | Apache Kafka (modo KRaft, sem Zookeeper) |
 | Comunicação síncrona | `RestClient` (Spring Framework 6) |
-| Autenticação | Spring Security + JWT (jjwt), papéis `CLIENTE` e `ADMIN` |
+| Autenticação | Spring Security + JWT (RS256, via Nimbus), papéis `CLIENTE`, `ADMIN` e `SERVICE` |
 | Documentação | springdoc-openapi (Swagger UI) |
-| Testes | JUnit 5, Mockito, Testcontainers, JaCoCo |
+| Observabilidade | Logs em JSON (logstash-logback-encoder), métricas Prometheus (Micrometer), id de correlação de ponta a ponta |
+| Testes | JUnit 5, Mockito, Testcontainers, JaCoCo, testes ponta a ponta |
 | Build | Maven multi-módulo |
 | Infra local | Docker Compose |
-| CI | GitHub Actions |
+| CI/CD | GitHub Actions (build, scan de vulnerabilidades, publicação de imagens no GHCR) |
 
 ## Estrutura do repositório
 
@@ -482,6 +483,59 @@ O módulo `e2e-tests` **não depende de Spring nem de nenhuma classe dos serviç
 fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste quebra
 — que é exatamente o que se espera dele.
 
+## Observabilidade
+
+Logs em JSON, métricas no formato Prometheus e um id de correlação que atravessa a
+jornada inteira: uma requisição HTTP, dois saltos de Kafka e a chamada de volta
+para renovar o token de serviço — tudo com o mesmo id, em todos os quatro
+serviços.
+
+### Logs
+
+Cada serviço escreve um objeto JSON por linha (`logstash-logback-encoder`), com
+`service`, `level`, `logger_name`, `message` e, quando existe, `correlationId`. É
+o formato que uma stack real (Loki, ELK, CloudWatch Logs Insights) espera; sem
+isso, achar "todo log do pedido X" num `docker compose logs` vira grep sobre
+texto livre:
+
+```json
+{"@timestamp":"2026-01-15T10:00:00.123Z","message":"Pedido 45b4... confirmado",
+ "logger_name":"com.ecommerce.orders.service.OrderSagaService","level":"INFO",
+ "correlationId":"e2e-7f3a...","service":"orders-service"}
+```
+
+### Id de correlação
+
+Um `CorrelationIdFilter` gera (ou reaproveita, se o cliente já mandou um) o id no
+cabeçalho `X-Correlation-Id`, o põe no MDC — daí ele entra em toda linha de log
+JSON da requisição — e o devolve na resposta. Dali em diante ele viaja sozinho:
+
+- **Nas chamadas REST entre serviços** (`orders-service` → `inventory-service`,
+  e a renovação do token junto ao `auth-service`), um `ClientHttpRequestInterceptor`
+  copia o id do MDC para o cabeçalho de saída.
+- **No Kafka**, o produtor anexa o id do MDC como header da mensagem, e o
+  consumidor o lê de volta para o MDC antes de processar — com `@Header(required
+  = false)`, para não quebrar se uma mensagem chegar sem ele.
+
+O resultado: dado um id de correlação, dá para reconstruir a história completa de
+um pedido com um grep nos quatro serviços, sem precisar de um sistema de tracing
+distribuído. Verificado de ponta a ponta: um pedido criado com um id explícito
+apareceu nos logs do `orders-service` (criação, publicação, confirmação), do
+`inventory-service` (reserva), do `notification-service` (as notificações) e até
+do `auth-service` — a chamada de renovação do token de serviço, disparada no meio
+do fluxo, herdou o mesmo id ambiente.
+
+### Métricas
+
+Cada serviço expõe `/actuator/prometheus`, no formato que um Prometheus real
+raspa. O endpoint é protegido: métricas são dado operacional, não algo que
+qualquer cliente autenticado deva ver, então só `ADMIN` ou a própria conta de
+`SERVICE` (a mesma que o orders-service usa para chamar o inventory-service)
+conseguem lê-lo. Um Prometheus real precisaria de credenciais próprias para
+raspar — não veio incluído no `docker-compose.yml`, para manter o escopo deste
+projeto no que ele se propõe a demonstrar (a instrumentação), sem empacotar uma
+stack de observabilidade inteira.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -513,6 +567,8 @@ fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste que
 | Scan de vulnerabilidades ignorando CVE sem correção | Travar o pipeline por uma falha que a própria distro de base ainda não corrigiu não protege ninguém, só impede todo deploy. |
 | Publicação de imagem só no `main`, após os gates | Uma branch de feature não deve poder publicar; o *deploy* nasce da mesma verificação que valida o código. |
 | Tomcat embarcado pinado acima do gerenciado pelo Boot 3.5.16 | O BOM traz `tomcat-embed-core 10.1.55`, com três CVEs críticos já corrigidos rio acima; sobrescrever a versão de um artefato de um BOM `import` exige uma entrada explícita de `dependencyManagement` antes do import, porque a property `${tomcat.version}` já veio resolvida do POM publicado. |
+| Métricas e correlação propagadas por header, não por biblioteca de tracing distribuído | O custo (`ClientHttpRequestInterceptor` + header do Kafka + MDC) é baixo e o resultado já reconstrói a jornada com um grep; um Zipkin/Tempo é o próximo passo natural, não um requisito deste porte de projeto. |
+| `/actuator/prometheus` exige `ADMIN` ou `SERVICE` | Métrica é dado operacional; abri-la para qualquer cliente autenticado seria uma superfície de informação que ninguém pediu. |
 
 ## Roadmap
 
@@ -526,7 +582,7 @@ fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste que
 - [x] **8.** Testes de integração ponta a ponta
 - [x] **9.** Dockerfiles e Docker Compose completo
 - [x] **10.** Pipeline de CI/CD com build de imagens
-- [ ] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
+- [x] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
 - [ ] **12.** Front-end em React *(opcional)*
 
 ## Licença

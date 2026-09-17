@@ -17,6 +17,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Métricas são dado operacional, não algo que qualquer cliente
+                        // autenticado deva ver; só quem raspa métricas (uma conta de
+                        // serviço) ou administra o sistema.
+                        .requestMatchers("/actuator/prometheus", "/actuator/metrics/**").hasAnyRole("ADMIN", "SERVICE")
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // O catálogo é público: numa loja, navegar pelos produtos e ver
                         // preços não exige conta. Estoque é leitura de catálogo também.

@@ -5,7 +5,6 @@ import com.nimbusds.jose.jwk.RSAKey;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -29,9 +28,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers("/.well-known/jwks.json").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Métricas são dado operacional, não algo que qualquer cliente
+                        // autenticado deva ver; só quem raspa métricas (uma conta de
+                        // serviço) ou administra o sistema.
+                        .requestMatchers("/actuator/prometheus", "/actuator/metrics/**").hasAnyRole("ADMIN", "SERVICE")
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->
+                        jwt.jwtAuthenticationConverter(new JwtRoleConverter())))
                 .build();
     }
 

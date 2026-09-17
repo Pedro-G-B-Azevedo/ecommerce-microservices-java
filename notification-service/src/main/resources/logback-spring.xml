@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logs em JSON, um objeto por linha. É o formato que uma stack de observabilidade
+  real (Loki, ELK, CloudWatch Logs Insights) espera: sem isso, extrair "todo log
+  do pedido X" de um `docker compose logs` vira grep torturado sobre texto livre.
+
+  O nome com sufixo "-spring" habilita as extensões do Boot (springProperty,
+  springProfile) e mantém "logging.level.*" do application.yml funcionando por
+  cima deste arquivo — não é preciso repetir os níveis aqui.
+-->
+<configuration>
+    <springProperty name="applicationName" source="spring.application.name"/>
+
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- Todo o MDC entra automaticamente como campos de topo — é assim
+                 que o id de correlação chega a cada linha sem código extra. -->
+            <customFields>{"service":"${applicationName}"}</customFields>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>

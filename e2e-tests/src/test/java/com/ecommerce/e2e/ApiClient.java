@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -34,11 +35,19 @@ final class ApiClient {
     }
 
     Response post(String path, String json, String token) {
-        HttpRequest.Builder builder = request(path, token)
-                .header("Content-Type", "application/json")
-                .POST(json == null
-                        ? HttpRequest.BodyPublishers.noBody()
-                        : HttpRequest.BodyPublishers.ofString(json));
+        return post(path, json, token, null, null);
+    }
+
+    /** Igual a {@link #post(String, String, String)}, com um cabeçalho extra — usado
+     * para verificar a propagação do id de correlação de ponta a ponta. */
+    Response post(String path, String json, String token, String extraHeaderName, String extraHeaderValue) {
+        HttpRequest.Builder builder = request(path, token).header("Content-Type", "application/json");
+        if (extraHeaderName != null) {
+            builder.header(extraHeaderName, extraHeaderValue);
+        }
+        builder.POST(json == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(json));
         return send(builder);
     }
 
@@ -55,7 +64,7 @@ final class ApiClient {
     private Response send(HttpRequest.Builder builder) {
         try {
             HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            return new Response(response.statusCode(), response.body());
+            return new Response(response.statusCode(), response.body(), response.headers());
         } catch (java.io.IOException ex) {
             throw new UncheckedIOException(ex);
         } catch (InterruptedException ex) {
@@ -64,7 +73,7 @@ final class ApiClient {
         }
     }
 
-    record Response(int status, String body) {
+    record Response(int status, String body, HttpHeaders headers) {
 
         JsonNode json() {
             try {
@@ -76,6 +85,10 @@ final class ApiClient {
 
         String text(String field) {
             return json().path(field).asText();
+        }
+
+        String header(String name) {
+            return headers.firstValue(name).orElse(null);
         }
     }
 }

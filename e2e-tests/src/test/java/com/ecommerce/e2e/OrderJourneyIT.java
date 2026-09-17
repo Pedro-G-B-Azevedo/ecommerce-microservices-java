@@ -130,6 +130,20 @@ class OrderJourneyIT {
                 .isEqualTo(201);
     }
 
+    @Test
+    @DisplayName("o id de correlação enviado pelo cliente volta no cabeçalho de resposta")
+    void correlationIdRoundTripsOnTheResponse() {
+        Customer cliente = registerCustomer("rastreado");
+        String productId = createProduct(5);
+        String correlationId = "e2e-" + UUID.randomUUID();
+
+        ApiClient.Response response = Services.ORDERS.post("/api/v1/orders",
+                orderBody(productId, 1), cliente.token(), "X-Correlation-Id", correlationId);
+
+        assertThat(response.status()).isEqualTo(201);
+        assertThat(response.header("X-Correlation-Id")).isEqualTo(correlationId);
+    }
+
     // ----- apoio -----
 
     private record Customer(String id, String token) {
