@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -31,7 +32,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @RestController
 @RequestMapping("/api/v1/products")
-@Tag(name = "Produtos", description = "Catálogo e controle de estoque")
+@Tag(name = "Produtos", description = "Catálogo e controle de estoque. A leitura é pública; alterar o catálogo exige ADMIN.")
 public class ProductController {
 
     private final ProductService productService;
@@ -41,6 +42,7 @@ public class ProductController {
     }
 
     @PostMapping
+    @SecurityRequirement(name = "bearer-jwt")
     @Operation(summary = "Cadastra um produto",
             description = "Cria o produto e abre sua linha de estoque com a quantidade inicial informada.")
     @ApiResponses({
@@ -103,6 +105,7 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/stock/replenish")
+    @SecurityRequirement(name = "bearer-jwt")
     @Operation(summary = "Dá entrada de estoque")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Estoque atualizado"),

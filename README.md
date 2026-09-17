@@ -349,6 +349,27 @@ configuração (`auth.bootstrap`), e não semeadas numa migration com hash de se
 fixo no repositório. **As senhas padrão do `.env.example` servem só para o
 docker-compose local.**
 
+## Documentação das APIs
+
+Cada serviço publica sua própria especificação OpenAPI 3.1 e uma interface Swagger:
+
+| Serviço | Swagger UI | Especificação |
+| --- | --- | --- |
+| auth-service | http://localhost:8081/swagger-ui.html | `/v3/api-docs` |
+| orders-service | http://localhost:8082/swagger-ui.html | `/v3/api-docs` |
+| inventory-service | http://localhost:8083/swagger-ui.html | `/v3/api-docs` |
+| notification-service | http://localhost:8084/swagger-ui.html | `/v3/api-docs` |
+
+Para experimentar as rotas protegidas: obtenha um token em
+`POST /api/v1/auth/login` no auth-service, clique em **Authorize** no Swagger do
+serviço desejado e cole apenas o token — o prefixo `Bearer` é acrescentado pela
+interface.
+
+O esquema de segurança está declarado por operação, e não no serviço inteiro: no
+inventory-service, por exemplo, as quatro leituras de catálogo aparecem abertas e as
+seis operações restantes aparecem com cadeado. A documentação reflete as regras que
+o `SecurityFilterChain` realmente aplica.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -386,7 +407,7 @@ docker-compose local.**
 - [x] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
 - [x] **5.** `notification-service` consumindo os eventos
 - [x] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
-- [ ] **7.** Documentação OpenAPI completa
+- [x] **7.** Documentação OpenAPI completa
 - [ ] **8.** Testes de integração ponta a ponta
 - [ ] **9.** Dockerfiles e Docker Compose completo
 - [ ] **10.** Pipeline de CI/CD com build de imagens

@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -21,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/reservations")
-@Tag(name = "Reservas", description = "Reserva de estoque por pedido")
+@Tag(name = "Reservas", description = "Reserva de estoque por pedido. Operação interna da saga: exige o papel SERVICE ou ADMIN.")
+@SecurityRequirement(name = "bearer-jwt")
 public class ReservationController {
 
     private final StockReservationService reservationService;
