@@ -408,6 +408,39 @@ código reenvia poucos megabytes em vez do jar inteiro.
 O CI constrói as quatro imagens a cada push e falha se alguma delas acabar rodando
 como root.
 
+## Os testes
+
+| Camada | O que cobre | Como roda |
+| --- | --- | --- |
+| Unitários | Regras de negócio, com Mockito | `./mvnw test` |
+| Web | Contratos HTTP e regras de autorização, com MockMvc | `./mvnw test` |
+| Persistência | Mapeamento e constraints, contra PostgreSQL real | Testcontainers |
+| Mensageria | A saga dos dois lados, contra Kafka real | Testcontainers |
+| Concorrência | Duas reservas simultâneas não vendem o mesmo estoque | Testcontainers |
+| Ponta a ponta | A jornada pelos quatro serviços | `docker compose` |
+
+Os cinco primeiros rodam em `./mvnw verify`, no CI a cada push. Nada de H2 nem de
+broker embutido: testar contra um banco diferente do de produção esconde
+divergências de dialeto, tipo e migration.
+
+### O teste ponta a ponta
+
+É o único que exercita os quatro serviços juntos — autenticação, catálogo, pedido,
+saga pelo Kafka e notificação. Os demais cobrem cada serviço isoladamente e não
+pegariam uma divergência de contrato entre dois deles.
+
+```bash
+docker compose up -d --build
+./mvnw -pl e2e-tests verify -Dskip.e2e=false
+```
+
+Fica desligado por padrão, porque exige a pilha no ar — `./mvnw verify` precisa
+funcionar em qualquer máquina. No CI, um job dedicado sobe o compose e o executa.
+
+O módulo `e2e-tests` **não depende de Spring nem de nenhuma classe dos serviços**:
+fala HTTP puro, como qualquer cliente externo. Se um contrato mudar, o teste quebra
+— que é exatamente o que se espera dele.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -446,7 +479,7 @@ como root.
 - [x] **5.** `notification-service` consumindo os eventos
 - [x] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
 - [x] **7.** Documentação OpenAPI completa
-- [ ] **8.** Testes de integração ponta a ponta
+- [x] **8.** Testes de integração ponta a ponta
 - [x] **9.** Dockerfiles e Docker Compose completo
 - [ ] **10.** Pipeline de CI/CD com build de imagens
 - [ ] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
