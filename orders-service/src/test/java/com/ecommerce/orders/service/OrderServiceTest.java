@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ecommerce.contracts.OrderCreatedEvent;
 import com.ecommerce.orders.client.InventoryClient;
 import com.ecommerce.orders.client.ProductSnapshot;
 import com.ecommerce.orders.dto.CreateOrderRequest;
@@ -21,6 +22,7 @@ import com.ecommerce.orders.exception.InvalidOrderStateException;
 import com.ecommerce.orders.exception.InventoryUnavailableException;
 import com.ecommerce.orders.exception.OrderNotFoundException;
 import com.ecommerce.orders.exception.ProductUnavailableException;
+import com.ecommerce.orders.messaging.OrderCreatedDomainEvent;
 import com.ecommerce.orders.repository.OrderRepository;
 import java.math.BigDecimal;
 import java.util.List;
@@ -30,9 +32,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -44,6 +48,9 @@ class OrderServiceTest {
 
     @Mock
     private InventoryClient inventoryClient;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private OrderService orderService;
@@ -85,6 +92,43 @@ class OrderServiceTest {
                 assertThat(item.unitPrice()).isEqualByComparingTo("349.90");
                 assertThat(item.subtotal()).isEqualByComparingTo("1049.70");
             });
+        }
+
+        @Test
+        @DisplayName("dispara o evento de domínio que leva o pedido ao Kafka após o commit")
+        void publishesDomainEvent() {
+            UUID productId = UUID.randomUUID();
+            when(inventoryClient.findByIds(anyList())).thenReturn(List.of(product(productId, "10.00")));
+            when(orderRepository.save(any(Order.class))).thenAnswer(call -> call.getArgument(0));
+
+            OrderResponse response = orderService.create(new CreateOrderRequest(
+                    CUSTOMER_ID, List.of(new OrderItemRequest(productId, 4))));
+
+            ArgumentCaptor<OrderCreatedDomainEvent> captor =
+                    ArgumentCaptor.forClass(OrderCreatedDomainEvent.class);
+            verify(eventPublisher).publishEvent(captor.capture());
+
+            OrderCreatedEvent payload = captor.getValue().payload();
+            assertThat(payload.orderId()).isEqualTo(response.id());
+            assertThat(payload.customerId()).isEqualTo(CUSTOMER_ID);
+            assertThat(payload.eventId()).isNotNull();
+            assertThat(payload.items()).singleElement().satisfies(line -> {
+                assertThat(line.productId()).isEqualTo(productId);
+                assertThat(line.quantity()).isEqualTo(4);
+            });
+        }
+
+        @Test
+        @DisplayName("não dispara evento algum quando o pedido é recusado")
+        void publishesNothingWhenRejected() {
+            UUID unknown = UUID.randomUUID();
+            when(inventoryClient.findByIds(anyList())).thenReturn(List.of());
+
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(
+                    CUSTOMER_ID, List.of(new OrderItemRequest(unknown, 1)))))
+                    .isInstanceOf(ProductUnavailableException.class);
+
+            verify(eventPublisher, never()).publishEvent(any(Object.class));
         }
 
         @Test

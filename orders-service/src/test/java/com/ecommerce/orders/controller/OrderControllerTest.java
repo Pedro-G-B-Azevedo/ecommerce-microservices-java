@@ -150,6 +150,7 @@ class OrderControllerTest {
                 new BigDecimal("299.80"),
                 List.of(new OrderItemResponse(
                         PRODUCT_ID, 2, new BigDecimal("149.90"), new BigDecimal("299.80"))),
+                null,
                 now,
                 now);
     }

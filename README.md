@@ -192,6 +192,69 @@ vendendo estoque que não existe. As linhas são travadas sempre na mesma ordem
 (por id do produto), o que elimina a chance de deadlock entre pedidos que
 compartilham produtos.
 
+## A saga de estoque
+
+```
+orders                          Kafka                        inventory
+  │                               │                              │
+  ├─ grava pedido (PENDING) ──┐   │                              │
+  │                        commit │                              │
+  ├─ publica OrderCreated ────────┤                              │
+  │                               ├──── OrderCreated ───────────>│
+  │                               │                              ├─ reserva estoque
+  │                               │<─ StockReserved / Rejected ──┤
+  │<──────────────────────────────┤                              │
+  ├─ CONFIRMED ou REJECTED        │                              │
+```
+
+O que sustenta esse fluxo:
+
+**A publicação só acontece depois do commit.** `OrderService` dispara um evento
+interno do Spring dentro da transação, e `OrderEventPublisher` o envia ao Kafka em
+`@TransactionalEventListener(AFTER_COMMIT)`. Publicar antes anunciaria um pedido que
+ainda pode sofrer rollback, e o inventory separaria estoque para algo que nunca
+existiu.
+
+**Resta uma janela conhecida.** Se o processo cair entre o commit e o envio, o
+pedido fica `PENDING` sem que o evento saia. É o custo consciente de não usar o
+padrão *outbox*, que gravaria o evento na mesma transação e o publicaria a partir
+da tabela. É o próximo passo natural caso o projeto evolua.
+
+**Consumo idempotente nos dois lados.** A entrega do Kafka é *at-least-once*: o
+mesmo evento chega mais de uma vez, por exemplo quando o consumidor cai depois de
+processar e antes de confirmar o offset. No inventory, a unique key
+`(order_id, product_id)` e a checagem por pedido impedem reservar duas vezes. No
+orders, a tabela `processed_events` tem o `eventId` como chave primária, e o
+registro é gravado na mesma transação da mudança de status — ou as duas coisas
+valem, ou nenhuma.
+
+**Falha de negócio não é erro.** Estoque insuficiente é um desfecho: vira
+`StockRejected`, não exceção. Reprocessar não mudaria o resultado, então a mensagem
+não vai para o dead-letter topic. Já uma falha técnica sobe, é repetida três vezes
+com um segundo de intervalo e, se persistir, vai para o DLT — sem isso, uma
+mensagem que sempre falha trava a partição e impede o avanço de todos os pedidos
+seguintes.
+
+**Cancelamento durante a reserva é compensado.** Se o cliente cancela enquanto o
+inventory separa o estoque, o `StockReserved` chega para um pedido já cancelado. O
+pedido não volta atrás: o que se desfaz é a reserva, com uma chamada de liberação
+ao inventory-service.
+
+**A chave da mensagem é o id do pedido**, o que mantém todos os eventos de um mesmo
+pedido na mesma partição e, portanto, em ordem.
+
+### Tópicos
+
+| Tópico | Produtor | Consumidor |
+| --- | --- | --- |
+| `orders.order-created` | orders-service | inventory-service |
+| `inventory.stock-reserved` | inventory-service | orders-service |
+| `inventory.stock-rejected` | inventory-service | orders-service |
+
+Os contratos vivem no módulo `contracts`, compartilhado pelos serviços. É a única
+coisa que eles compartilham — e é justamente o que garante que produtor e consumidor
+concordem sobre o formato.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -214,6 +277,8 @@ compartilham produtos.
 | Importar o BOM em vez de herdar `spring-boot-starter-parent` | O POM raiz não é um projeto Spring Boot; ele apenas agrega módulos e gerencia versões. |
 | Kafka em modo KRaft | O Zookeeper foi removido no Kafka 4.0; usá-lo em um projeto novo seria legado. |
 | Saga coreografada | Um pedido só é confirmado depois que o estoque responde — modela de verdade a consistência eventual entre serviços. |
+| Publicação após o commit, sem outbox | Evita anunciar pedido que pode sofrer rollback. A janela entre commit e publicação fica documentada como limitação conhecida, em vez de escondida. |
+| Dead-letter topic com retry limitado | Uma mensagem que sempre falha travaria a partição para sempre; o DLT a tira do caminho e a preserva para análise. |
 | Testcontainers desde o início | Testar com H2 e implantar em PostgreSQL esconde divergências de dialeto, tipos e migrations. |
 | `RestClient` em vez de OpenFeign | O Spring Cloud OpenFeign está em modo manutenção; o `RestClient` é nativo do Spring Framework. |
 
@@ -222,7 +287,7 @@ compartilham produtos.
 - [x] **1.** Setup do projeto: estrutura multi-módulo, POMs, Docker Compose com os bancos, CI
 - [x] **2.** `orders-service`: entidades, CRUD, DTOs, tratamento de erros e testes
 - [x] **3.** `inventory-service`: produtos, estoque e reserva
-- [ ] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
+- [x] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
 - [ ] **5.** `notification-service` consumindo os eventos
 - [ ] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
 - [ ] **7.** Documentação OpenAPI completa

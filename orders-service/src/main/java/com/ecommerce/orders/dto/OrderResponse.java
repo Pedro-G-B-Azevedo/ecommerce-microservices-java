@@ -15,6 +15,7 @@ public record OrderResponse(
         OrderStatus status,
         BigDecimal totalAmount,
         List<OrderItemResponse> items,
+        String rejectionReason,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -25,6 +26,7 @@ public record OrderResponse(
                 order.getStatus(),
                 order.getTotalAmount(),
                 order.getItems().stream().map(OrderItemResponse::from).toList(),
+                order.getRejectionReason(),
                 order.getCreatedAt(),
                 order.getUpdatedAt());
     }

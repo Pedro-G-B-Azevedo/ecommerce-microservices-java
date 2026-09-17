@@ -1,5 +1,6 @@
 package com.ecommerce.orders.service;
 
+import com.ecommerce.contracts.OrderCreatedEvent;
 import com.ecommerce.orders.client.InventoryClient;
 import com.ecommerce.orders.client.ProductSnapshot;
 import com.ecommerce.orders.dto.CreateOrderRequest;
@@ -15,7 +16,9 @@ import com.ecommerce.orders.exception.InvalidOrderStateException;
 import com.ecommerce.orders.exception.ProductUnavailableException;
 import com.ecommerce.orders.exception.OrderNotFoundException;
 import com.ecommerce.orders.repository.OrderRepository;
+import com.ecommerce.orders.messaging.OrderCreatedDomainEvent;
 import com.ecommerce.orders.repository.OrderSpecifications;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -25,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -38,10 +42,14 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final InventoryClient inventoryClient;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public OrderService(OrderRepository orderRepository, InventoryClient inventoryClient) {
+    public OrderService(OrderRepository orderRepository,
+                        InventoryClient inventoryClient,
+                        ApplicationEventPublisher eventPublisher) {
         this.orderRepository = orderRepository;
         this.inventoryClient = inventoryClient;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -66,6 +74,10 @@ public class OrderService {
         Order order = orderRepository.save(Order.create(request.customerId(), items));
         log.info("Pedido {} criado para o cliente {} no valor de {}",
                 order.getId(), order.getCustomerId(), order.getTotalAmount());
+
+        // Publicado no Kafka apenas depois do commit desta transação; ver
+        // OrderEventPublisher.
+        eventPublisher.publishEvent(new OrderCreatedDomainEvent(toEvent(order)));
 
         return OrderResponse.from(order);
     }
@@ -106,6 +118,18 @@ public class OrderService {
 
         log.info("Pedido {} cancelado", orderId);
         return OrderResponse.from(order);
+    }
+
+    private static OrderCreatedEvent toEvent(Order order) {
+        return new OrderCreatedEvent(
+                UUID.randomUUID(),
+                order.getId(),
+                order.getCustomerId(),
+                order.getItems().stream()
+                        .map(item -> new OrderCreatedEvent.OrderLine(item.getProductId(), item.getQuantity()))
+                        .toList(),
+                order.getTotalAmount(),
+                Instant.now());
     }
 
     /**

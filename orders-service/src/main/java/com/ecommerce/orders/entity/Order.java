@@ -55,6 +55,9 @@ public class Order {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
     @Version
     private Long version;
 
@@ -81,6 +84,37 @@ public class Order {
             throw new IllegalArgumentException("Um pedido precisa de ao menos um item");
         }
         return new Order(customerId, items);
+    }
+
+    /**
+     * Confirma o pedido após o inventory-service separar o estoque.
+     *
+     * <p>Confirmar um pedido já confirmado é silenciosamente aceito: o evento pode
+     * chegar duas vezes, e a segunda não deve virar erro.
+     */
+    public void confirm() {
+        if (status == OrderStatus.CONFIRMED) {
+            return;
+        }
+        requirePending("confirmado");
+        this.status = OrderStatus.CONFIRMED;
+    }
+
+    /** Rejeita o pedido porque o estoque não pôde ser separado. */
+    public void reject(String reason) {
+        if (status == OrderStatus.REJECTED) {
+            return;
+        }
+        requirePending("rejeitado");
+        this.status = OrderStatus.REJECTED;
+        this.rejectionReason = reason;
+    }
+
+    private void requirePending(String action) {
+        if (status != OrderStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Apenas um pedido pendente pode ser " + action + "; status atual: " + status);
+        }
     }
 
     /** Cancelamento a pedido do cliente, possível apenas enquanto o pedido está pendente. */
@@ -129,6 +163,10 @@ public class Order {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
     }
 
     public Long getVersion() {
