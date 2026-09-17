@@ -14,6 +14,7 @@ import com.ecommerce.orders.entity.OrderStatus;
 import com.ecommerce.orders.exception.DuplicateOrderItemException;
 import com.ecommerce.orders.exception.InvalidOrderStateException;
 import com.ecommerce.orders.exception.ProductUnavailableException;
+import com.ecommerce.orders.exception.OrderAccessDeniedException;
 import com.ecommerce.orders.exception.OrderNotFoundException;
 import com.ecommerce.orders.repository.OrderRepository;
 import com.ecommerce.orders.messaging.OrderCreatedDomainEvent;
@@ -59,7 +60,7 @@ public class OrderService {
      * {@code OrderCreated}, que dispara a reserva de estoque.
      */
     @Transactional
-    public OrderResponse create(CreateOrderRequest request) {
+    public OrderResponse create(CreateOrderRequest request, CurrentUser currentUser) {
         rejectDuplicateProducts(request.items());
 
         // O preço vem do catálogo, nunca do cliente. Uma única chamada em lote
@@ -71,7 +72,7 @@ public class OrderService {
                         item.productId(), item.quantity(), catalog.get(item.productId()).price()))
                 .toList();
 
-        Order order = orderRepository.save(Order.create(request.customerId(), items));
+        Order order = orderRepository.save(Order.create(currentUser.id(), items));
         log.info("Pedido {} criado para o cliente {} no valor de {}",
                 order.getId(), order.getCustomerId(), order.getTotalAmount());
 
@@ -83,17 +84,23 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public OrderResponse findById(UUID orderId) {
-        return orderRepository.findWithItemsById(orderId)
-                .map(OrderResponse::from)
+    public OrderResponse findById(UUID orderId, CurrentUser currentUser) {
+        Order order = orderRepository.findWithItemsById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
+        requireVisible(order, currentUser);
+        return OrderResponse.from(order);
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<OrderSummaryResponse> search(UUID customerId, OrderStatus status, Pageable pageable) {
+    public PageResponse<OrderSummaryResponse> search(UUID customerId, OrderStatus status,
+                                                     Pageable pageable, CurrentUser currentUser) {
         List<Specification<Order>> filters = new ArrayList<>();
-        if (customerId != null) {
-            filters.add(OrderSpecifications.hasCustomerId(customerId));
+
+        // Um cliente só enxerga os próprios pedidos: o filtro é imposto, não
+        // aceito da requisição. Sem isso, bastaria informar outro customerId.
+        UUID effectiveCustomerId = currentUser.isAdmin() ? customerId : currentUser.id();
+        if (effectiveCustomerId != null) {
+            filters.add(OrderSpecifications.hasCustomerId(effectiveCustomerId));
         }
         if (status != null) {
             filters.add(OrderSpecifications.hasStatus(status));
@@ -104,9 +111,10 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponse cancel(UUID orderId) {
+    public OrderResponse cancel(UUID orderId, CurrentUser currentUser) {
         Order order = orderRepository.findWithItemsById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
+        requireVisible(order, currentUser);
 
         try {
             order.cancel();
@@ -118,6 +126,12 @@ public class OrderService {
 
         log.info("Pedido {} cancelado", orderId);
         return OrderResponse.from(order);
+    }
+
+    private static void requireVisible(Order order, CurrentUser currentUser) {
+        if (!currentUser.canSee(order.getCustomerId())) {
+            throw new OrderAccessDeniedException();
+        }
     }
 
     private static OrderCreatedEvent toEvent(Order order) {

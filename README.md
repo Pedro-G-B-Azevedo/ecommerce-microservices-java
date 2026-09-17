@@ -163,8 +163,8 @@ A integração distingue dois tipos de falha:
 Os tempos-limite da chamada são curtos (2s para conectar, 3s para ler): a criação
 de pedido é síncrona, e uma chamada pendurada seguraria a thread e o cliente junto.
 
-`customerId` no corpo da requisição ainda é provisório e passa a vir do JWT na
-etapa 6.
+O `customerId` não faz parte do corpo: é o `sub` do token. Aceitá-lo permitiria
+criar pedidos em nome de outra pessoa.
 
 ## API do inventory-service
 
@@ -289,6 +289,66 @@ registrar a falha e seguir.
 A API é somente leitura: `GET /api/v1/notifications`, com filtros por pedido,
 cliente e situação. Notificações nascem do consumo de eventos, nunca de uma chamada.
 
+## Autenticação e autorização
+
+O `auth-service` emite tokens JWT; os outros três os validam como *resource servers*.
+
+**Assinatura assimétrica (RS256), não segredo compartilhado.** Com HS256 e um
+segredo único, todo serviço capaz de validar um token também seria capaz de emitir
+um — um serviço comprometido poderia forjar credenciais de administrador. Aqui só o
+`auth-service` tem a chave privada; os demais buscam a pública em
+`/.well-known/jwks.json` e nunca conseguem assinar nada.
+
+O `sub` do token é o id do usuário, não o e-mail: é o que os outros serviços usam
+como `customerId`, e não muda se o e-mail mudar.
+
+### Quem pode o quê
+
+| Recurso | Anônimo | `CLIENTE` | `ADMIN` | `SERVICE` |
+| --- | --- | --- | --- | --- |
+| `GET /products/**` | ✅ | ✅ | ✅ | ✅ |
+| `POST/PUT /products/**` | 401 | 403 | ✅ | 403 |
+| `/reservations/**` | 401 | 403 | ✅ | ✅ |
+| `POST /orders` | 401 | ✅ | 403 | 403 |
+| `GET /orders/{id}` | 401 | só os próprios | todos | 403 |
+| `GET /orders` | 401 | só os próprios | todos | 403 |
+| `GET /notifications` | 401 | só as próprias | todas | 403 |
+
+O catálogo é público de propósito: numa loja, navegar por produtos e preços não
+exige conta. Criar pedido é exclusividade de `CLIENTE` — um administrador não compra
+em nome de ninguém.
+
+**O filtro por cliente é imposto, não aceito.** Nas listagens, o parâmetro
+`customerId` só tem efeito para `ADMIN`; para um cliente, ele é substituído pelo
+`sub` do token. Sem isso, bastaria informar outro id para ler os pedidos alheios.
+
+**Pedido de outra pessoa devolve 404, não 403.** Confirmar que o pedido existe, mas
+pertence a outro cliente, já é informação que o solicitante não deveria obter.
+
+**O login não distingue os motivos da falha.** E-mail inexistente, senha errada e
+conta desativada devolvem a mesma mensagem; diferenciá-las permitiria descobrir
+quais e-mails têm conta. O cadastro com e-mail já usado segue a mesma regra.
+
+### Identidade de serviço
+
+A compensação da saga — liberar uma reserva quando o pedido foi cancelado — nasce de
+um evento do Kafka, onde não há usuário autenticado para repassar. E propagar o token
+do cliente seria errado: quem pede a liberação é o serviço, não a pessoa. Por isso o
+`orders-service` tem uma conta própria, com o papel `SERVICE`, e obtém um token no
+`auth-service` que mantém em memória até pouco antes de expirar.
+
+### Chaves
+
+As chaves RSA vêm em PEM por `JWT_PRIVATE_KEY` e `JWT_PUBLIC_KEY`. Quando não vêm, o
+`auth-service` gera um par efêmero ao subir e registra um aviso: conveniente em
+desenvolvimento, inviável em produção, onde reiniciar invalidaria todos os tokens em
+circulação.
+
+As contas de administrador e de serviço são criadas na primeira subida a partir de
+configuração (`auth.bootstrap`), e não semeadas numa migration com hash de senha
+fixo no repositório. **As senhas padrão do `.env.example` servem só para o
+docker-compose local.**
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -315,6 +375,8 @@ cliente e situação. Notificações nascem do consumo de eventos, nunca de uma 
 | Dead-letter topic com retry limitado | Uma mensagem que sempre falha travaria a partição para sempre; o DLT a tira do caminho e a preserva para análise. |
 | Testcontainers desde o início | Testar com H2 e implantar em PostgreSQL esconde divergências de dialeto, tipos e migrations. |
 | `RestClient` em vez de OpenFeign | O Spring Cloud OpenFeign está em modo manutenção; o `RestClient` é nativo do Spring Framework. |
+| JWT assinado com RS256 e distribuído por JWKS | Com segredo compartilhado, qualquer serviço que valida um token também poderia emitir um. |
+| Conta de serviço para a compensação | O evento do Kafka não tem usuário autenticado, e propagar o token do cliente atribuiria a ele uma ação que é do serviço. |
 
 ## Roadmap
 
@@ -323,7 +385,7 @@ cliente e situação. Notificações nascem do consumo de eventos, nunca de uma 
 - [x] **3.** `inventory-service`: produtos, estoque e reserva
 - [x] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
 - [x] **5.** `notification-service` consumindo os eventos
-- [ ] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
+- [x] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
 - [ ] **7.** Documentação OpenAPI completa
 - [ ] **8.** Testes de integração ponta a ponta
 - [ ] **9.** Dockerfiles e Docker Compose completo

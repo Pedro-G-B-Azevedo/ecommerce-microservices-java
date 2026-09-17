@@ -25,6 +25,13 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.NOT_FOUND, "Pedido não encontrado", ex.getMessage(), "order-not-found");
     }
 
+    @ExceptionHandler(OrderAccessDeniedException.class)
+    public ProblemDetail handleAccessDenied(OrderAccessDeniedException ex) {
+        // 404, e não 403: confirmar que o pedido existe já entregaria informação
+        // sobre pedidos alheios.
+        return problem(HttpStatus.NOT_FOUND, "Pedido não encontrado", ex.getMessage(), "order-not-found");
+    }
+
     @ExceptionHandler(InvalidOrderStateException.class)
     public ProblemDetail handleInvalidState(InvalidOrderStateException ex) {
         return problem(HttpStatus.CONFLICT, "Transição de status inválida", ex.getMessage(), "invalid-order-state");

@@ -1,7 +1,9 @@
 package com.ecommerce.orders.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -17,6 +19,7 @@ import com.ecommerce.orders.exception.InvalidOrderStateException;
 import com.ecommerce.orders.exception.InventoryUnavailableException;
 import com.ecommerce.orders.exception.ProductUnavailableException;
 import com.ecommerce.orders.exception.OrderNotFoundException;
+import com.ecommerce.orders.config.SecurityConfig;
 import com.ecommerce.orders.service.OrderService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -27,11 +30,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+// @WebMvcTest não carrega classes @Configuration da aplicação: sem este import, quem
+// responderia seria a segurança padrão do Boot, e as regras de papel deste serviço
+// não seriam exercitadas.
 @WebMvcTest(OrderController.class)
+@Import(SecurityConfig.class)
 class OrderControllerTest {
 
     private static final UUID ORDER_ID = UUID.randomUUID();
@@ -47,12 +58,17 @@ class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
+    // O resource server exige um JwtDecoder no contexto; o post-processor jwt()
+    // monta a autenticação sem passar por ele.
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
+
     @Test
     @DisplayName("POST devolve 201 com o cabeçalho Location apontando para o pedido")
     void createReturns201WithLocation() throws Exception {
-        when(orderService.create(any())).thenReturn(sampleResponse(OrderStatus.PENDING));
+        when(orderService.create(any(), any())).thenReturn(sampleResponse(OrderStatus.PENDING));
 
-        mockMvc.perform(post("/api/v1/orders")
+        mockMvc.perform(post("/api/v1/orders").with(cliente())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isCreated())
@@ -65,9 +81,9 @@ class OrderControllerTest {
     @Test
     @DisplayName("POST sem itens devolve 400 no formato Problem Details, com os campos inválidos")
     void createWithoutItemsReturns400() throws Exception {
-        CreateOrderRequest request = new CreateOrderRequest(CUSTOMER_ID, List.of());
+        CreateOrderRequest request = new CreateOrderRequest(List.of());
 
-        mockMvc.perform(post("/api/v1/orders")
+        mockMvc.perform(post("/api/v1/orders").with(cliente())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -78,10 +94,9 @@ class OrderControllerTest {
     @Test
     @DisplayName("POST com quantidade zero devolve 400")
     void createWithZeroQuantityReturns400() throws Exception {
-        CreateOrderRequest request = new CreateOrderRequest(CUSTOMER_ID,
-                List.of(new OrderItemRequest(PRODUCT_ID, 0)));
+        CreateOrderRequest request = new CreateOrderRequest(List.of(new OrderItemRequest(PRODUCT_ID, 0)));
 
-        mockMvc.perform(post("/api/v1/orders")
+        mockMvc.perform(post("/api/v1/orders").with(cliente())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -91,9 +106,9 @@ class OrderControllerTest {
     @Test
     @DisplayName("GET de pedido inexistente devolve 404 no formato Problem Details")
     void findByIdReturns404() throws Exception {
-        when(orderService.findById(ORDER_ID)).thenThrow(new OrderNotFoundException(ORDER_ID));
+        when(orderService.findById(eq(ORDER_ID), any())).thenThrow(new OrderNotFoundException(ORDER_ID));
 
-        mockMvc.perform(get("/api/v1/orders/{id}", ORDER_ID))
+        mockMvc.perform(get("/api/v1/orders/{id}", ORDER_ID).with(cliente()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Pedido não encontrado"))
                 .andExpect(jsonPath("$.type").value("https://api.ecommerce.com/problems/order-not-found"));
@@ -102,10 +117,10 @@ class OrderControllerTest {
     @Test
     @DisplayName("cancelar pedido que não está pendente devolve 409")
     void cancelReturns409() throws Exception {
-        when(orderService.cancel(ORDER_ID))
+        when(orderService.cancel(eq(ORDER_ID), any()))
                 .thenThrow(new InvalidOrderStateException("Apenas pedidos pendentes podem ser cancelados"));
 
-        mockMvc.perform(post("/api/v1/orders/{id}/cancel", ORDER_ID))
+        mockMvc.perform(post("/api/v1/orders/{id}/cancel", ORDER_ID).with(cliente()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Transição de status inválida"));
     }
@@ -113,9 +128,9 @@ class OrderControllerTest {
     @Test
     @DisplayName("produto fora do catálogo devolve 422 com os ids problemáticos")
     void unknownProductReturns422() throws Exception {
-        when(orderService.create(any())).thenThrow(new ProductUnavailableException(List.of(PRODUCT_ID)));
+        when(orderService.create(any(), any())).thenThrow(new ProductUnavailableException(List.of(PRODUCT_ID)));
 
-        mockMvc.perform(post("/api/v1/orders")
+        mockMvc.perform(post("/api/v1/orders").with(cliente())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isUnprocessableEntity())
@@ -126,19 +141,46 @@ class OrderControllerTest {
     @Test
     @DisplayName("catálogo fora do ar devolve 503, não 4xx")
     void inventoryOutageReturns503() throws Exception {
-        when(orderService.create(any()))
+        when(orderService.create(any(), any()))
                 .thenThrow(new InventoryUnavailableException(new RuntimeException("timeout")));
 
-        mockMvc.perform(post("/api/v1/orders")
+        mockMvc.perform(post("/api/v1/orders").with(cliente())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.type").value("https://api.ecommerce.com/problems/inventory-unavailable"));
     }
 
+    @Test
+    @DisplayName("sem token, criar pedido devolve 401")
+    void anonymousCreateReturns401() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("ADMIN não cria pedido em nome de ninguém: 403")
+    void adminCannotCreateOrder() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .with(jwt().jwt(token -> token.subject(CUSTOMER_ID.toString())
+                                        .claim("roles", List.of("ADMIN")))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Requisição autenticada como CLIENTE. */
+    private static SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor cliente() {
+        return jwt().jwt(token -> token.subject(CUSTOMER_ID.toString())
+                        .claim("roles", List.of("CLIENTE")))
+                .authorities(new SimpleGrantedAuthority("ROLE_CLIENTE"));
+    }
+
     private static CreateOrderRequest validRequest() {
-        return new CreateOrderRequest(CUSTOMER_ID,
-                List.of(new OrderItemRequest(PRODUCT_ID, 2)));
+        return new CreateOrderRequest(List.of(new OrderItemRequest(PRODUCT_ID, 2)));
     }
 
     private static OrderResponse sampleResponse(OrderStatus status) {

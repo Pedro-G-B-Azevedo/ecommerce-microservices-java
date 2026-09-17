@@ -27,6 +27,7 @@ import com.ecommerce.orders.repository.OrderRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,6 +43,7 @@ import org.springframework.context.ApplicationEventPublisher;
 class OrderServiceTest {
 
     private static final UUID CUSTOMER_ID = UUID.randomUUID();
+    private static final CurrentUser CLIENTE = new CurrentUser(CUSTOMER_ID, Set.of("CLIENTE"));
 
     @Mock
     private OrderRepository orderRepository;
@@ -68,9 +70,9 @@ class OrderServiceTest {
                     product(mouse, "59.00")));
             when(orderRepository.save(any(Order.class))).thenAnswer(call -> call.getArgument(0));
 
-            OrderResponse response = orderService.create(new CreateOrderRequest(CUSTOMER_ID, List.of(
+            OrderResponse response = orderService.create(new CreateOrderRequest(List.of(
                     new OrderItemRequest(keyboard, 2),
-                    new OrderItemRequest(mouse, 1))));
+                    new OrderItemRequest(mouse, 1))), CLIENTE);
 
             // 2 x 149.90 + 1 x 59.00
             assertThat(response.totalAmount()).isEqualByComparingTo("358.80");
@@ -85,8 +87,7 @@ class OrderServiceTest {
             when(inventoryClient.findByIds(anyList())).thenReturn(List.of(product(productId, "349.90")));
             when(orderRepository.save(any(Order.class))).thenAnswer(call -> call.getArgument(0));
 
-            OrderResponse response = orderService.create(new CreateOrderRequest(
-                    CUSTOMER_ID, List.of(new OrderItemRequest(productId, 3))));
+            OrderResponse response = orderService.create(new CreateOrderRequest(List.of(new OrderItemRequest(productId, 3))), CLIENTE);
 
             assertThat(response.items()).singleElement().satisfies(item -> {
                 assertThat(item.unitPrice()).isEqualByComparingTo("349.90");
@@ -101,8 +102,7 @@ class OrderServiceTest {
             when(inventoryClient.findByIds(anyList())).thenReturn(List.of(product(productId, "10.00")));
             when(orderRepository.save(any(Order.class))).thenAnswer(call -> call.getArgument(0));
 
-            OrderResponse response = orderService.create(new CreateOrderRequest(
-                    CUSTOMER_ID, List.of(new OrderItemRequest(productId, 4))));
+            OrderResponse response = orderService.create(new CreateOrderRequest(List.of(new OrderItemRequest(productId, 4))), CLIENTE);
 
             ArgumentCaptor<OrderCreatedDomainEvent> captor =
                     ArgumentCaptor.forClass(OrderCreatedDomainEvent.class);
@@ -124,8 +124,7 @@ class OrderServiceTest {
             UUID unknown = UUID.randomUUID();
             when(inventoryClient.findByIds(anyList())).thenReturn(List.of());
 
-            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(
-                    CUSTOMER_ID, List.of(new OrderItemRequest(unknown, 1)))))
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(List.of(new OrderItemRequest(unknown, 1))), CLIENTE))
                     .isInstanceOf(ProductUnavailableException.class);
 
             verify(eventPublisher, never()).publishEvent(any(Object.class));
@@ -138,9 +137,9 @@ class OrderServiceTest {
             UUID unknown = UUID.randomUUID();
             when(inventoryClient.findByIds(anyList())).thenReturn(List.of(product(known, "10.00")));
 
-            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(CUSTOMER_ID, List.of(
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(List.of(
                     new OrderItemRequest(known, 1),
-                    new OrderItemRequest(unknown, 1)))))
+                    new OrderItemRequest(unknown, 1))), CLIENTE))
                     .isInstanceOf(ProductUnavailableException.class)
                     .satisfies(ex -> assertThat(((ProductUnavailableException) ex).getProductIds())
                             .containsExactly(unknown));
@@ -155,8 +154,7 @@ class OrderServiceTest {
             when(inventoryClient.findByIds(anyList())).thenReturn(List.of(
                     new ProductSnapshot(productId, "SKU-1", "Produto", new BigDecimal("10.00"), false)));
 
-            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(
-                    CUSTOMER_ID, List.of(new OrderItemRequest(productId, 1)))))
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(List.of(new OrderItemRequest(productId, 1))), CLIENTE))
                     .isInstanceOf(ProductUnavailableException.class);
 
             verify(orderRepository, never()).save(any());
@@ -169,8 +167,7 @@ class OrderServiceTest {
             when(inventoryClient.findByIds(anyList()))
                     .thenThrow(new InventoryUnavailableException(new RuntimeException("timeout")));
 
-            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(
-                    CUSTOMER_ID, List.of(new OrderItemRequest(productId, 1)))))
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(List.of(new OrderItemRequest(productId, 1))), CLIENTE))
                     .isInstanceOf(InventoryUnavailableException.class);
 
             verify(orderRepository, never()).save(any());
@@ -181,9 +178,9 @@ class OrderServiceTest {
         void rejectsDuplicateProductBeforeCallingInventory() {
             UUID productId = UUID.randomUUID();
 
-            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(CUSTOMER_ID, List.of(
+            assertThatThrownBy(() -> orderService.create(new CreateOrderRequest(List.of(
                     new OrderItemRequest(productId, 1),
-                    new OrderItemRequest(productId, 2)))))
+                    new OrderItemRequest(productId, 2))), CLIENTE))
                     .isInstanceOf(DuplicateOrderItemException.class)
                     .hasMessageContaining(productId.toString());
 
@@ -201,7 +198,7 @@ class OrderServiceTest {
             UUID orderId = UUID.randomUUID();
             when(orderRepository.findWithItemsById(orderId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> orderService.findById(orderId))
+            assertThatThrownBy(() -> orderService.findById(orderId, CLIENTE))
                     .isInstanceOf(OrderNotFoundException.class)
                     .hasMessageContaining(orderId.toString());
         }
@@ -216,7 +213,7 @@ class OrderServiceTest {
             Order order = pendingOrder();
             when(orderRepository.findWithItemsById(order.getId())).thenReturn(Optional.of(order));
 
-            OrderResponse response = orderService.cancel(order.getId());
+            OrderResponse response = orderService.cancel(order.getId(), CLIENTE);
 
             assertThat(response.status()).isEqualTo(OrderStatus.CANCELLED);
         }
@@ -228,7 +225,7 @@ class OrderServiceTest {
             order.cancel();
             when(orderRepository.findWithItemsById(order.getId())).thenReturn(Optional.of(order));
 
-            assertThatThrownBy(() -> orderService.cancel(order.getId()))
+            assertThatThrownBy(() -> orderService.cancel(order.getId(), CLIENTE))
                     .isInstanceOf(InvalidOrderStateException.class)
                     .hasMessageContaining("CANCELLED");
         }
@@ -239,7 +236,7 @@ class OrderServiceTest {
             UUID orderId = UUID.randomUUID();
             when(orderRepository.findWithItemsById(orderId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> orderService.cancel(orderId))
+            assertThatThrownBy(() -> orderService.cancel(orderId, CLIENTE))
                     .isInstanceOf(OrderNotFoundException.class);
         }
     }

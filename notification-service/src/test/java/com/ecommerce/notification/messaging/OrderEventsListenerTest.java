@@ -105,7 +105,9 @@ class OrderEventsListenerTest extends KafkaContainerSupport {
     }
 
     private List<NotificationResponse> notifications(UUID orderId) {
-        return notificationService.search(orderId, null, null, PageRequest.of(0, 20)).content();
+        // Consulta como ADMIN: o teste precisa enxergar as notificações de qualquer cliente.
+        return notificationService.search(orderId, null, null, PageRequest.of(0, 20),
+                UUID.randomUUID(), true).content();
     }
 
     private static OrderCreatedEvent orderCreated(UUID orderId, UUID customerId) {

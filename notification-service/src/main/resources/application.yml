@@ -47,6 +47,16 @@ spring:
     listener:
       ack-mode: record
       observation-enabled: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # A chave pública é buscada no auth-service. Nenhum serviço além dele
+          # conhece a privada, então nenhum outro consegue emitir tokens.
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+          issuer-uri: ${JWT_ISSUER:https://auth.ecommerce.local}
+
+
 
 management:
   endpoints:

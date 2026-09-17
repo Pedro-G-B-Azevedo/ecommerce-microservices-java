@@ -15,6 +15,7 @@ import com.ecommerce.orders.dto.CreateOrderRequest;
 import com.ecommerce.orders.dto.OrderItemRequest;
 import com.ecommerce.orders.dto.OrderResponse;
 import com.ecommerce.orders.entity.OrderStatus;
+import com.ecommerce.orders.service.CurrentUser;
 import com.ecommerce.orders.service.OrderService;
 import com.ecommerce.orders.support.KafkaContainerSupport;
 import java.math.BigDecimal;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -101,7 +103,7 @@ class OrderSagaFlowTest extends KafkaContainerSupport {
                 new StockReservedEvent(UUID.randomUUID(), order.id(), Instant.now()));
 
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                assertThat(orderService.findById(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
+                assertThat(reload(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
     }
 
     @Test
@@ -114,7 +116,7 @@ class OrderSagaFlowTest extends KafkaContainerSupport {
                         List.of(new StockRejectedEvent.Shortfall(PRODUCT_ID, 10, 2)), Instant.now()));
 
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
-            OrderResponse updated = orderService.findById(order.id());
+            OrderResponse updated = reload(order.id());
             assertThat(updated.status()).isEqualTo(OrderStatus.REJECTED);
             assertThat(updated.rejectionReason()).isEqualTo("Estoque insuficiente");
         });
@@ -128,18 +130,24 @@ class OrderSagaFlowTest extends KafkaContainerSupport {
 
         kafkaTemplate.send(Topics.STOCK_RESERVED, order.id().toString(), event);
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                assertThat(orderService.findById(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
+                assertThat(reload(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
 
         // Mesmo eventId: a deduplicação por processed_events deve descartá-lo.
         kafkaTemplate.send(Topics.STOCK_RESERVED, order.id().toString(), event);
 
         await().during(Duration.ofSeconds(3)).atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(orderService.findById(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
+                assertThat(reload(order.id()).status()).isEqualTo(OrderStatus.CONFIRMED));
     }
 
     private OrderResponse createOrder() {
-        return orderService.create(new CreateOrderRequest(
-                UUID.randomUUID(), List.of(new OrderItemRequest(PRODUCT_ID, 1))));
+        CurrentUser cliente = new CurrentUser(UUID.randomUUID(), Set.of("CLIENTE"));
+        return orderService.create(
+                new CreateOrderRequest(List.of(new OrderItemRequest(PRODUCT_ID, 1))), cliente);
+    }
+
+    private OrderResponse reload(UUID orderId) {
+        // ADMIN para poder reler qualquer pedido, independentemente de quem o criou.
+        return orderService.findById(orderId, new CurrentUser(UUID.randomUUID(), Set.of("ADMIN")));
     }
 
     private ConsumerRecord<String, Object> awaitOrderCreated() {

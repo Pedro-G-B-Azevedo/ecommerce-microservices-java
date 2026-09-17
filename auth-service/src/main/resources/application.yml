@@ -43,3 +43,24 @@ springdoc:
 logging:
   level:
     com.ecommerce: DEBUG
+
+jwt:
+  issuer: ${JWT_ISSUER:https://auth.ecommerce.local}
+  access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:1h}
+  # Em PEM (conteúdo entre os marcadores BEGIN/END). Sem elas, um par efêmero é
+  # gerado ao subir — só serve para desenvolvimento.
+  private-key: ${JWT_PRIVATE_KEY:}
+  public-key: ${JWT_PUBLIC_KEY:}
+
+auth:
+  bootstrap:
+    # Contas criadas na primeira subida, se configuradas. Os valores padrão existem
+    # para que o docker-compose funcione de imediato; troque-os fora de desenvolvimento.
+    admin:
+      email: ${AUTH_ADMIN_EMAIL:admin@ecommerce.local}
+      password: ${AUTH_ADMIN_PASSWORD:troque-esta-senha-admin}
+      full-name: Administrador
+    service-account:
+      email: ${AUTH_SERVICE_ACCOUNT_EMAIL:orders-service@ecommerce.local}
+      password: ${AUTH_SERVICE_ACCOUNT_PASSWORD:troque-esta-senha-servico}
+      full-name: orders-service

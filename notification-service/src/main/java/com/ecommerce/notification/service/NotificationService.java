@@ -78,13 +78,18 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public PageResponse<NotificationResponse> search(UUID orderId, UUID customerId,
-                                                     NotificationStatus status, Pageable pageable) {
+                                                     NotificationStatus status, Pageable pageable,
+                                                     UUID requesterId, boolean requesterIsAdmin) {
         List<Specification<Notification>> filters = new ArrayList<>();
         if (orderId != null) {
             filters.add(NotificationSpecifications.hasOrderId(orderId));
         }
-        if (customerId != null) {
-            filters.add(NotificationSpecifications.hasCustomerId(customerId));
+
+        // Um cliente só enxerga as próprias notificações: o filtro é imposto, não
+        // aceito da requisição.
+        UUID effectiveCustomerId = requesterIsAdmin ? customerId : requesterId;
+        if (effectiveCustomerId != null) {
+            filters.add(NotificationSpecifications.hasCustomerId(effectiveCustomerId));
         }
         if (status != null) {
             filters.add(NotificationSpecifications.hasStatus(status));
