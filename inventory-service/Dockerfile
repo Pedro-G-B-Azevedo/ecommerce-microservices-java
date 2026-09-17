@@ -23,14 +23,20 @@ COPY orders-service/pom.xml orders-service/
 COPY inventory-service/pom.xml inventory-service/
 COPY notification-service/pom.xml notification-service/
 COPY e2e-tests/pom.xml e2e-tests/
-RUN --mount=type=cache,target=/root/.m2 \
+# id= e sharing=locked: sem eles, os quatro serviços compartilhariam o
+# mesmo mount de cache do BuildKit, e um `docker compose build` (que builda
+# os quatro em paralelo) faz duas instâncias do Maven Wrapper tentarem
+# extrair o próprio zip no mesmo diretório ao mesmo tempo — id isola o
+# cache por serviço, sharing=locked serializa o acesso de quem ainda assim
+# colidir.
+RUN --mount=type=cache,id=m2-inventory-service,target=/root/.m2,sharing=locked \
     ./mvnw -B -ntp -pl inventory-service -am dependency:go-offline
 
 COPY contracts/src contracts/src
 COPY inventory-service/src inventory-service/src
 # Os testes rodam no CI, com Postgres e Kafka de verdade; repeti-los aqui exigiria
 # Docker dentro do build e não acrescentaria garantia nenhuma.
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,id=m2-inventory-service,target=/root/.m2,sharing=locked \
     ./mvnw -B -ntp -pl inventory-service -am -DskipTests package
 
 # O jar é desmontado em camadas para que dependências e aplicação virem camadas
