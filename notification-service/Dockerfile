@@ -11,6 +11,9 @@ WORKDIR /build
 
 # Os POMs entram antes do código-fonte: enquanto as dependências não mudarem,
 # o Docker reaproveita a camada de download mesmo que o código mude.
+#
+# Todos os módulos do reator precisam estar listados aqui, mesmo os que este
+# serviço não usa: o Maven recusa um POM pai cujo módulo declarado não existe.
 COPY mvnw ./
 COPY .mvn .mvn
 COPY pom.xml ./
@@ -19,6 +22,7 @@ COPY auth-service/pom.xml auth-service/
 COPY orders-service/pom.xml orders-service/
 COPY inventory-service/pom.xml inventory-service/
 COPY notification-service/pom.xml notification-service/
+COPY e2e-tests/pom.xml e2e-tests/
 RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw -B -ntp -pl notification-service -am dependency:go-offline
 
