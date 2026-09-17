@@ -255,6 +255,40 @@ Os contratos vivem no módulo `contracts`, compartilhado pelos serviços. É a �
 coisa que eles compartilham — e é justamente o que garante que produtor e consumidor
 concordem sobre o formato.
 
+## O notification-service
+
+Consumidor puro: não participa da saga e não influencia o resultado do pedido.
+Assina os três tópicos em um grupo próprio, então uma falha aqui não afeta o
+`orders` nem o `inventory`.
+
+| Evento | Notificação |
+| --- | --- |
+| `OrderCreated` | "Recebemos o seu pedido" |
+| `StockReserved` | "Seu pedido foi confirmado" |
+| `StockRejected` | "Não conseguimos atender o seu pedido", detalhando cada item em falta |
+
+O envio é simulado: `LoggingNotificationSender` escreve a mensagem no log em vez de
+entregá-la. É uma implementação de `NotificationSender`, de modo que trocar o log
+por um provedor real não exige tocar no serviço nem nos listeners.
+
+Duas decisões valem o comentário:
+
+**O serviço monta seu próprio modelo de leitura.** Os eventos de estoque trazem
+apenas o pedido — o inventory-service não conhece o cliente, e fazê-lo repassar esse
+dado o obrigaria a carregar informação que não é dele. Em vez disso, a tabela
+`order_contacts` é preenchida a partir de `OrderCreated` e consultada quando o
+desfecho chega. Se o desfecho chegar antes (Kafka só garante ordem dentro de uma
+partição, e são tópicos diferentes), a exceção sobe, o Kafka reentrega e a tentativa
+seguinte encontra o cadastro.
+
+**Falha de envio não derruba o consumo.** A notificação é gravada como `FAILED`,
+com o motivo, e o evento segue processado. Deixar a exceção subir faria o Kafka
+reentregar o evento e reenviar a mensagem para quem já a recebeu — pior do que
+registrar a falha e seguir.
+
+A API é somente leitura: `GET /api/v1/notifications`, com filtros por pedido,
+cliente e situação. Notificações nascem do consumo de eventos, nunca de uma chamada.
+
 ## Convenções
 
 - **Idioma**: identificadores, nomes de classe e mensagens de commit em inglês;
@@ -288,7 +322,7 @@ concordem sobre o formato.
 - [x] **2.** `orders-service`: entidades, CRUD, DTOs, tratamento de erros e testes
 - [x] **3.** `inventory-service`: produtos, estoque e reserva
 - [x] **4.** Integração via Kafka entre `orders` e `inventory` (saga, idempotência, DLT)
-- [ ] **5.** `notification-service` consumindo os eventos
+- [x] **5.** `notification-service` consumindo os eventos
 - [ ] **6.** `auth-service`: Spring Security + JWT, papéis `CLIENTE`/`ADMIN`
 - [ ] **7.** Documentação OpenAPI completa
 - [ ] **8.** Testes de integração ponta a ponta
