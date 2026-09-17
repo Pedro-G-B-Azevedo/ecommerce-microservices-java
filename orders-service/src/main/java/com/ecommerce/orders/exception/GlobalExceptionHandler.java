@@ -35,6 +35,24 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "Item duplicado", ex.getMessage(), "duplicate-order-item");
     }
 
+    @ExceptionHandler(ProductUnavailableException.class)
+    public ProblemDetail handleProductUnavailable(ProductUnavailableException ex) {
+        // 422 e não 400: o corpo está bem formado, mas referencia produtos que o
+        // catálogo não reconhece.
+        ProblemDetail problem = problem(HttpStatus.UNPROCESSABLE_ENTITY, "Produto indisponível",
+                "Um ou mais produtos do pedido não existem ou estão inativos", "product-unavailable");
+        problem.setProperty("productIds", ex.getProductIds());
+        return problem;
+    }
+
+    @ExceptionHandler(InventoryUnavailableException.class)
+    public ProblemDetail handleInventoryUnavailable(InventoryUnavailableException ex) {
+        log.warn("Catálogo indisponível ao criar pedido", ex);
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Serviço indisponível",
+                "Não foi possível consultar o catálogo de produtos; tente novamente em instantes",
+                "inventory-unavailable");
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
         List<ValidationError> errors = ex.getBindingResult().getFieldErrors().stream()

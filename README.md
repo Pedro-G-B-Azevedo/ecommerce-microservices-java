@@ -148,9 +148,23 @@ Erros seguem RFC 7807:
 }
 ```
 
-Dois campos são provisórios e saem em etapas seguintes: `customerId` no corpo da
-requisição passa a vir do JWT (etapa 6) e `unitPrice` passa a ser consultado no
-inventory-service (etapa 3) — preço não é algo que o cliente deva informar.
+O corpo da criação traz apenas `productId` e `quantity`. **O preço não faz parte
+do contrato**: o orders-service consulta o catálogo do inventory-service, em uma
+única chamada em lote, e grava o preço vindo de lá. Aceitá-lo do cliente
+permitiria que ele definisse quanto paga.
+
+A integração distingue dois tipos de falha:
+
+| Situação | Status | Por quê |
+| --- | --- | --- |
+| Produto inexistente ou inativo | `422` | O corpo está bem formado, mas referencia algo que o catálogo não vende. A resposta lista todos os ids problemáticos. |
+| inventory-service fora do ar ou lento | `503` | É falha de infraestrutura, não do pedido: repetir mais tarde pode dar certo. |
+
+Os tempos-limite da chamada são curtos (2s para conectar, 3s para ler): a criação
+de pedido é síncrona, e uma chamada pendurada seguraria a thread e o cliente junto.
+
+`customerId` no corpo da requisição ainda é provisório e passa a vir do JWT na
+etapa 6.
 
 ## API do inventory-service
 

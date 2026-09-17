@@ -43,3 +43,9 @@ springdoc:
 logging:
   level:
     com.ecommerce: DEBUG
+
+inventory:
+  base-url: ${INVENTORY_BASE_URL:http://localhost:8083}
+  # Curtos de propósito: a criação de pedido é síncrona e não pode ficar pendurada.
+  connect-timeout: 2s
+  read-timeout: 3s

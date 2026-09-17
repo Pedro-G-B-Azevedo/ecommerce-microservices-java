@@ -14,6 +14,8 @@ import com.ecommerce.orders.dto.OrderItemResponse;
 import com.ecommerce.orders.dto.OrderResponse;
 import com.ecommerce.orders.entity.OrderStatus;
 import com.ecommerce.orders.exception.InvalidOrderStateException;
+import com.ecommerce.orders.exception.InventoryUnavailableException;
+import com.ecommerce.orders.exception.ProductUnavailableException;
 import com.ecommerce.orders.exception.OrderNotFoundException;
 import com.ecommerce.orders.service.OrderService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -77,7 +79,7 @@ class OrderControllerTest {
     @DisplayName("POST com quantidade zero devolve 400")
     void createWithZeroQuantityReturns400() throws Exception {
         CreateOrderRequest request = new CreateOrderRequest(CUSTOMER_ID,
-                List.of(new OrderItemRequest(PRODUCT_ID, 0, new BigDecimal("10.00"))));
+                List.of(new OrderItemRequest(PRODUCT_ID, 0)));
 
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -108,9 +110,35 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.title").value("Transição de status inválida"));
     }
 
+    @Test
+    @DisplayName("produto fora do catálogo devolve 422 com os ids problemáticos")
+    void unknownProductReturns422() throws Exception {
+        when(orderService.create(any())).thenThrow(new ProductUnavailableException(List.of(PRODUCT_ID)));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.title").value("Produto indisponível"))
+                .andExpect(jsonPath("$.productIds[0]").value(PRODUCT_ID.toString()));
+    }
+
+    @Test
+    @DisplayName("catálogo fora do ar devolve 503, não 4xx")
+    void inventoryOutageReturns503() throws Exception {
+        when(orderService.create(any()))
+                .thenThrow(new InventoryUnavailableException(new RuntimeException("timeout")));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value("https://api.ecommerce.com/problems/inventory-unavailable"));
+    }
+
     private static CreateOrderRequest validRequest() {
         return new CreateOrderRequest(CUSTOMER_ID,
-                List.of(new OrderItemRequest(PRODUCT_ID, 2, new BigDecimal("149.90"))));
+                List.of(new OrderItemRequest(PRODUCT_ID, 2)));
     }
 
     private static OrderResponse sampleResponse(OrderStatus status) {
