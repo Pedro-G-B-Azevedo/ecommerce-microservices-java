@@ -12,11 +12,12 @@ Projeto pessoal de portfólio, desenvolvido em etapas incrementais.
 
 ```mermaid
 flowchart LR
-    client([Cliente / React])
+    client([Navegador]) --> frontend[frontend<br/>:5173]
 
-    client --> auth[auth-service<br/>:8081]
-    client --> orders[orders-service<br/>:8082]
-    client --> inventory[inventory-service<br/>:8083]
+    frontend --> auth[auth-service<br/>:8081]
+    frontend --> orders[orders-service<br/>:8082]
+    frontend --> inventory[inventory-service<br/>:8083]
+    frontend --> notification[notification-service<br/>:8084]
 
     orders -- "REST: valida produto e preço" --> inventory
 
@@ -51,7 +52,8 @@ falhas repetidas vão para um *dead-letter topic*.
 | Documentação | springdoc-openapi (Swagger UI) |
 | Observabilidade | Logs em JSON (logstash-logback-encoder), métricas Prometheus (Micrometer), id de correlação de ponta a ponta |
 | Testes | JUnit 5, Mockito, Testcontainers, JaCoCo, testes ponta a ponta |
-| Build | Maven multi-módulo |
+| Front-end | React 19 + TypeScript, Vite, React Router |
+| Build | Maven multi-módulo (back-end), npm (front-end) |
 | Infra local | Docker Compose |
 | CI/CD | GitHub Actions (build, scan de vulnerabilidades, publicação de imagens no GHCR) |
 
@@ -65,6 +67,7 @@ falhas repetidas vão para um *dead-letter topic*.
 ├── orders-service/          # Criação e consulta de pedidos
 ├── inventory-service/       # Estoque e reserva de itens
 ├── notification-service/    # Notificações a partir dos eventos
+├── frontend/                # SPA em React que consome as quatro APIs
 ├── docker-compose.yml       # Infraestrutura local
 └── .github/workflows/ci.yml # Pipeline de build e testes
 ```
@@ -72,13 +75,16 @@ falhas repetidas vão para um *dead-letter topic*.
 Os serviços compartilham apenas o módulo `contracts`, que contém somente os
 *records* dos eventos publicados no Kafka. Entidades JPA, regras de negócio e
 DTOs de API **não** são compartilhados: cada serviço é dono do seu domínio e do
-seu banco.
+seu banco. O `frontend` não participa do reactor Maven: é um projeto npm à parte,
+que fala com os quatro serviços por HTTP, do mesmo jeito que qualquer outro
+cliente externo falaria.
 
 ## Como executar
 
 ### Pré-requisitos
 
 - JDK 17 ou superior
+- Node 22 ou superior (só para rodar o front-end fora do Docker)
 - Docker e Docker Compose
 - Não é necessário instalar o Maven: use o wrapper (`./mvnw`)
 
@@ -89,10 +95,12 @@ cp .env.example .env     # ajuste usuários e senhas
 docker compose up -d --build
 ```
 
-Sobe os quatro serviços, seus bancos e o Kafka. As dependências são declaradas por
-`healthcheck`, não por ordem de inicialização: o `orders-service` só começa depois
-que o banco aceita conexões, o Kafka responde e o `auth-service` está de pé para
-servir a chave pública.
+Sobe os quatro serviços, seus bancos, o Kafka e o front-end. As dependências são
+declaradas por `healthcheck`, não por ordem de inicialização: o `orders-service`
+só começa depois que o banco aceita conexões, o Kafka responde e o `auth-service`
+está de pé para servir a chave pública. O front-end fica em
+http://localhost:5173 — veja a conta de administrador padrão em
+[Autenticação e autorização](#autenticação-e-autorização).
 
 Para subir apenas a infraestrutura e rodar os serviços pela IDE:
 
@@ -314,6 +322,12 @@ um — um serviço comprometido poderia forjar credenciais de administrador. Aqu
 O `sub` do token é o id do usuário, não o e-mail: é o que os outros serviços usam
 como `customerId`, e não muda se o e-mail mudar.
 
+**Conta de administrador padrão.** Na primeira subida, o `auth-service` cria uma
+conta `ADMIN` a partir de `AUTH_ADMIN_EMAIL`/`AUTH_ADMIN_PASSWORD`
+(`admin@ecommerce.local` / `troque-esta-senha-admin` por padrão — troque-os fora
+de desenvolvimento). É com ela que se entra no painel administrativo do
+front-end para cadastrar produtos; qualquer outra conta nasce `CLIENTE`.
+
 ### Quem pode o quê
 
 | Recurso | Anônimo | `CLIENTE` | `ADMIN` | `SERVICE` |
@@ -382,6 +396,47 @@ inventory-service, por exemplo, as quatro leituras de catálogo aparecem abertas
 seis operações restantes aparecem com cadeado. A documentação reflete as regras que
 o `SecurityFilterChain` realmente aplica.
 
+## Front-end
+
+Uma SPA em React 19 + TypeScript (Vite) que cobre a jornada do cliente — catálogo,
+carrinho, checkout, acompanhamento do pedido e notificações — mais um painel
+administrativo simples para cadastrar produtos e dar entrada de estoque. Vive em
+`frontend/`, fora do reactor Maven: é um projeto npm à parte, que fala com os
+quatro serviços por HTTP como qualquer outro cliente externo falaria — sem
+backend-for-frontend, sem SSR.
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:5173, falando com os serviços em localhost:808x
+```
+
+**Sem API gateway.** O navegador chama cada serviço diretamente na sua porta; as
+URLs vêm de variáveis `VITE_*` (`src/api/config.ts`), com portas locais como
+padrão. Isso empurrou duas coisas para o back-end que não existiam antes deste
+passo: CORS (cada serviço libera a origem do front-end via `CORS_ALLOWED_ORIGINS`,
+com `X-Correlation-Id` na lista de cabeçalhos expostos — sem isso o `fetch` do
+navegador não teria como lê-lo) e um pouco de decisão de UX no cliente, como o
+polling da página de pedido: a saga confirma ou rejeita de forma assíncrona, então
+a tela consulta o pedido a cada poucos segundos enquanto ele estiver `PENDING`.
+
+**Sessão em `localStorage`, não cookie httpOnly.** Mais simples para uma SPA sem
+backend-for-frontend, ao custo de expor o token a um XSS bem-sucedido — uma troca
+aceitável aqui porque não há conteúdo de terceiros na página; em produção real, a
+alternativa seria um cookie httpOnly emitido pelo próprio backend-for-frontend, o
+que reintroduziria a peça que este projeto deliberadamente não tem.
+
+**Sem testes automatizados de front-end.** Este passo é opcional e o rigor de
+testes do projeto está deliberadamente concentrado no back-end (JUnit, Mockito,
+Testcontainers, o teste ponta a ponta). A jornada completa — cadastro, login,
+busca no catálogo, checkout, confirmação da saga, notificações, rejeição por
+estoque insuficiente e a guarda de rota do painel administrativo — foi verificada
+manualmente contra os quatro serviços reais, incluindo um bug real de condição de
+corrida encontrado e corrigido nesse processo (respostas do polling do pedido
+podiam chegar fora de ordem e sobrescrever um status já confirmado com um
+`PENDING` desatualizado; a correção descarta qualquer resposta que não seja a da
+requisição mais recente).
+
 ## As imagens
 
 Cada serviço tem um `Dockerfile` multi-estágio na sua pasta. O build é feito a
@@ -409,23 +464,46 @@ código reenvia poucos megabytes em vez do jar inteiro.
 O CI constrói as quatro imagens a cada push e falha se alguma delas acabar rodando
 como root.
 
+**O front-end tem seu próprio `Dockerfile`** (`frontend/Dockerfile`), fora desse
+padrão: build em duas etapas também, mas a primeira roda `npm ci`/`npm run build`
+em vez do Maven, e a segunda serve os arquivos estáticos com a imagem
+`nginx-unprivileged` — sem root aqui também, só que via um Nginx que já roda como
+usuário sem privilégios por padrão, em vez de um usuário criado à mão. As URLs das
+APIs (`VITE_*`) entram como build arg, porque o Vite as resolve em tempo de build:
+o resultado é um bundle estático, sem servidor por trás capaz de injetar
+configuração em tempo de execução.
+
 ## O pipeline de CI/CD
 
-Um único workflow (`.github/workflows/ci.yml`), cinco jobs, cada um dependendo do
-anterior ter passado:
+Um único workflow (`.github/workflows/ci.yml`), seis jobs. Os quatro voltados ao
+back-end formam uma cadeia, cada um dependendo do anterior ter passado; o
+`frontend` roda em paralelo, e o `e2e` builda e sobe o container do front-end
+junto dos outros porque ele também está no `docker-compose.yml`:
 
 ```
 build ──> images ──> security-scan ──> e2e ──> publish
-          (build)     (Trivy)         (compose)  (só no main)
+                                        ^
+frontend ───────────────────────────────  (typecheck + bundle; a imagem do
+                                            front-end é validada pelo próprio e2e)
 ```
 
 | Job | O que faz | Quando roda |
 | --- | --- | --- |
 | `build` | Testes unitários, web, persistência, mensageria e concorrência | Todo push e PR |
-| `images` | Builda as quatro imagens; falha se alguma rodar como root | Todo push e PR |
-| `security-scan` | Escaneia as imagens com Trivy | Todo push e PR |
-| `e2e` | Sobe o `docker compose` completo e roda a jornada ponta a ponta | Todo push e PR |
-| `publish` | Publica as imagens no GHCR | Só push em `main` |
+| `frontend` | `npm ci`, typecheck (`tsc -b`) e bundle de produção (`vite build`) | Todo push e PR |
+| `images` | Builda as quatro imagens Spring; falha se alguma rodar como root | Todo push e PR |
+| `security-scan` | Escaneia as quatro imagens Spring com Trivy | Todo push e PR |
+| `e2e` | Sobe o `docker compose` completo (inclusive o front-end) e roda a jornada ponta a ponta do back-end | Todo push e PR |
+| `publish` | Publica as quatro imagens Spring no GHCR | Só push em `main` |
+
+**Por que o front-end fica de fora do scan e da publicação no GHCR.** O gate de
+Trivy e o registro de imagens existem para o que este projeto trata como o
+entregável real — os quatro serviços Spring; uma imagem estática do Nginx
+servindo um bundle React tem uma superfície de risco muito menor e não muda com
+a mesma frequência que justifique o mesmo aparato. O front-end ainda assim tem
+sua build validada a cada push, só que pelo job `frontend` (typecheck + bundle) e
+pela própria subida do `docker compose` no job `e2e` — se o `Dockerfile` dele
+quebrar, o `e2e` quebra junto.
 
 **O scan de vulnerabilidades é um gate real, não decorativo.** Ele falha o job
 para CVE **crítico e corrigido rio acima** (`severity: CRITICAL`,
@@ -583,7 +661,7 @@ stack de observabilidade inteira.
 - [x] **9.** Dockerfiles e Docker Compose completo
 - [x] **10.** Pipeline de CI/CD com build de imagens
 - [x] **11.** Observabilidade: correlation id, métricas e logs estruturados *(opcional)*
-- [ ] **12.** Front-end em React *(opcional)*
+- [x] **12.** Front-end em React *(opcional)*
 
 ## Licença
 

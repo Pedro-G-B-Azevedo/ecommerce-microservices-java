@@ -79,3 +79,7 @@ springdoc:
 logging:
   level:
     com.ecommerce: DEBUG
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

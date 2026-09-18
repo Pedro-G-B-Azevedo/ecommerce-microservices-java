@@ -64,3 +64,8 @@ auth:
       email: ${AUTH_SERVICE_ACCOUNT_EMAIL:orders-service@ecommerce.local}
       password: ${AUTH_SERVICE_ACCOUNT_PASSWORD:troque-esta-senha-servico}
       full-name: orders-service
+
+app:
+  cors:
+    # Origem do front-end React; várias origens separadas por vírgula.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

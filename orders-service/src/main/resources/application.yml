@@ -88,3 +88,7 @@ service-account:
   auth-base-url: ${AUTH_BASE_URL:http://localhost:8081}
   email: ${SERVICE_ACCOUNT_EMAIL:orders-service@ecommerce.local}
   password: ${SERVICE_ACCOUNT_PASSWORD:troque-esta-senha-servico}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
