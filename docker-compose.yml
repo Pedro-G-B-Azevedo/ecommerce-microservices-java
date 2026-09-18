@@ -274,12 +274,10 @@ services:
     restart: unless-stopped
     ports:
       - "5173:8080"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    # Sem healthcheck de propósito: ao contrário das imagens JRE Alpine dos
+    # outros serviços, a imagem nginx-unprivileged não traz wget/curl, e nada
+    # neste compose depende do front-end estar de pé (nenhum "depends_on"
+    # aponta para ele) — "running" já é sinal suficiente aqui.
     networks:
       - ecommerce
 
