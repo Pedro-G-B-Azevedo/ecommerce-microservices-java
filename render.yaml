@@ -31,12 +31,14 @@ services:
         sync: false
       - key: AUTH_DB_PASSWORD
         sync: false
-      # O Postgres gratuito da Aiven tem um teto de 20 conexões e não tem
-      # pooling por cima (PgBouncer); o padrão do Hikari é 10 por serviço, o
-      # que sozinho já estouraria isso com dois serviços de pé. 3 por
-      # serviço, com os quatro rodando juntos, fica bem abaixo do limite.
+      # O Postgres gratuito da Aiven tem um teto de 20 conexões (menos as
+      # reservadas para SUPERUSER) e não tem pooling por cima (PgBouncer); o
+      # padrão do Hikari é 10 por serviço, o que sozinho já estouraria isso
+      # com dois serviços de pé. 2 por serviço, com os quatro rodando
+      # juntos, deixa bastante folga mesmo contando alguma sobra de conexões
+      # de deploys anteriores que ainda não foram limpas pelo servidor.
       - key: DB_POOL_MAX_SIZE
-        value: "3"
+        value: "2"
       - key: AUTH_ADMIN_EMAIL
         value: admin@ecommerce.local
       - key: AUTH_ADMIN_PASSWORD
@@ -70,7 +72,7 @@ services:
       - key: INVENTORY_DB_PASSWORD
         sync: false
       - key: DB_POOL_MAX_SIZE
-        value: "3"
+        value: "2"
       - key: KAFKA_BOOTSTRAP_SERVERS
         sync: false
       - key: KAFKA_SECURITY_PROTOCOL
@@ -104,7 +106,7 @@ services:
       - key: ORDERS_DB_PASSWORD
         sync: false
       - key: DB_POOL_MAX_SIZE
-        value: "3"
+        value: "2"
       - key: KAFKA_BOOTSTRAP_SERVERS
         sync: false
       - key: KAFKA_SECURITY_PROTOCOL
@@ -148,7 +150,7 @@ services:
       - key: NOTIFICATION_DB_PASSWORD
         sync: false
       - key: DB_POOL_MAX_SIZE
-        value: "3"
+        value: "2"
       - key: KAFKA_BOOTSTRAP_SERVERS
         sync: false
       - key: KAFKA_SECURITY_PROTOCOL

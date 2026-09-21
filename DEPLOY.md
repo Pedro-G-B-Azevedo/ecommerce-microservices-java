@@ -114,7 +114,7 @@ chave privada do seu deploy.
    falhar ao subir — faltam as variáveis marcadas `sync: false` no
    `render.yaml`, que só você pode preencher.
 
-   > O blueprint já define `DB_POOL_MAX_SIZE=3` para os quatro serviços
+   > O blueprint já define `DB_POOL_MAX_SIZE=2` para os quatro serviços
    > Spring — não precisa preencher isso. É necessário porque o Postgres
    > gratuito da Aiven tem um teto de 20 conexões e não tem pooling
    > (PgBouncer) por cima; o padrão do Hikari é 10 conexões por serviço, o
@@ -152,9 +152,13 @@ chave privada do seu deploy.
 
 **`FATAL: remaining connection slots are reserved for roles with the
 SUPERUSER attribute`** — o Postgres gratuito da Aiven estourou o limite de
-20 conexões. Confira se `DB_POOL_MAX_SIZE=3` está mesmo definido nos quatro
+20 conexões. Confira se `DB_POOL_MAX_SIZE=2` está mesmo definido nos quatro
 serviços (o blueprint já define isso, mas confira na aba Environment de
-cada um se você editou algo manualmente).
+cada um se você editou algo manualmente). Se estiver definido em todos e o
+erro persistir, é provável que sobrem conexões "zumbis" de deploys
+anteriores que falharam de forma abrupta — reinicie o serviço Postgres no
+console da Aiven (não apaga dados, só derruba conexões) e tente o deploy
+de novo.
 
 **`Login module control flag is not available in the JAAS config`** — o
 valor de `KAFKA_SASL_JAAS_CONFIG` está incompleto ou quebrado. Ele precisa
