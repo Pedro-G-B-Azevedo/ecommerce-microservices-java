@@ -11,6 +11,15 @@ spring:
     url: ${ORDERS_DB_URL:jdbc:postgresql://localhost:5434/orders}
     username: ${ORDERS_DB_USER:orders}
     password: ${ORDERS_DB_PASSWORD:orders}
+    hikari:
+      # Padrão do Hikari é 10; no docker-compose cada serviço tem seu próprio
+      # Postgres, então isso nunca importou. Um Postgres gerenciado
+      # compartilhado (como o tier gratuito da Aiven) costuma ter um limite
+      # de conexões baixo e sem pooling por cima — os quatro serviços juntos
+      # estourariam esse limite com o padrão. DB_POOL_MAX_SIZE existe para
+      # apertar isso num deploy assim, sem mudar nada localmente.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:${DB_POOL_MAX_SIZE:10}}
   jpa:
     open-in-view: false
     hibernate:
