@@ -27,7 +27,9 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY docker-entrypoint.d/40-render-port.sh /docker-entrypoint.d/40-render-port.sh
-RUN chmod +x /docker-entrypoint.d/40-render-port.sh
+# --chmod em vez de um RUN chmod separado: a imagem já roda como usuário sem
+# privilégios (nginx) neste ponto do build, que não é dono do arquivo recém
+# copiado e não conseguiria alterar sua permissão.
+COPY --chmod=755 docker-entrypoint.d/40-render-port.sh /docker-entrypoint.d/40-render-port.sh
 
 EXPOSE 8080
