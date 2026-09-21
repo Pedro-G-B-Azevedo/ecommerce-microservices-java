@@ -1,5 +1,8 @@
 server:
-  port: 8081
+  # ${PORT} é injetada por plataformas como o Render, que escolhem a porta em
+  # tempo de execução; localmente e no docker-compose ela não existe, e a
+  # aplicação cai no padrão de sempre.
+  port: ${PORT:8081}
 
 spring:
   application:

@@ -1,6 +1,8 @@
 package com.ecommerce.inventory.config;
 
+import com.ecommerce.contracts.Topics;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -29,10 +31,16 @@ public class KafkaConfig {
      *
      * <p>Falhas de negócio (estoque insuficiente) não chegam aqui: são desfecho, não
      * erro, e viram um evento de rejeição.
+     *
+     * <p>Um único dead-letter topic para todos os tópicos de origem, em vez do padrão
+     * do Spring Kafka (um "&lt;tópico&gt;.DLT" por tópico): provedores gerenciados com
+     * tier gratuito costumam limitar a quantidade de tópicos, e este projeto já usa
+     * três tópicos de negócio.
      */
     @Bean
     public DefaultErrorHandler kafkaErrorHandler(KafkaOperations<String, Object> kafkaOperations) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaOperations);
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaOperations,
+                (record, exception) -> new TopicPartition(Topics.DEAD_LETTER, 0));
         DefaultErrorHandler handler = new DefaultErrorHandler(
                 (record, exception) -> {
                     logFailure(record, exception);

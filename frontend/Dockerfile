@@ -27,5 +27,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY docker-entrypoint.d/40-render-port.sh /docker-entrypoint.d/40-render-port.sh
+RUN chmod +x /docker-entrypoint.d/40-render-port.sh
 
 EXPOSE 8080

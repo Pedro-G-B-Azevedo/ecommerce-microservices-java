@@ -1,0 +1,174 @@
+# Blueprint do Render: sobe os cinco serviços (quatro em Spring Boot + o
+# front-end) a partir dos Dockerfiles já existentes em cada pasta. Banco de
+# dados e Kafka não entram aqui — rodam na Aiven, fora do Render, porque o
+# tier gratuito do Render não oferece nenhum dos dois de forma persistente.
+#
+# As URLs abaixo pressupõem que os nomes dos serviços não mudaram (o Render
+# deriva a URL pública do nome: "ecommerce-auth-service" vira
+# "https://ecommerce-auth-service.onrender.com"). Se algum nome já estiver em
+# uso e o Render sugerir outro, atualize manualmente as variáveis que
+# referenciam esse serviço nos outros — o guia de deploy (DEPLOY.md) lista
+# exatamente quais.
+#
+# Variáveis marcadas com "sync: false" pedem o valor no painel do Render
+# depois que o blueprint for criado; nenhuma delas fica neste arquivo.
+
+services:
+  - type: web
+    name: ecommerce-auth-service
+    runtime: docker
+    dockerfilePath: ./auth-service/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: AUTH_DB_URL
+        sync: false
+      - key: AUTH_DB_USER
+        sync: false
+      - key: AUTH_DB_PASSWORD
+        sync: false
+      - key: AUTH_ADMIN_EMAIL
+        value: admin@ecommerce.local
+      - key: AUTH_ADMIN_PASSWORD
+        sync: false
+      - key: AUTH_SERVICE_ACCOUNT_EMAIL
+        value: orders-service@ecommerce.local
+      # Precisa ser o MESMO valor de SERVICE_ACCOUNT_PASSWORD no
+      # ecommerce-orders-service, abaixo: são as duas pontas da mesma conta.
+      - key: AUTH_SERVICE_ACCOUNT_PASSWORD
+        sync: false
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://ecommerce-frontend.onrender.com
+
+  - type: web
+    name: ecommerce-inventory-service
+    runtime: docker
+    dockerfilePath: ./inventory-service/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: INVENTORY_DB_URL
+        sync: false
+      - key: INVENTORY_DB_USER
+        sync: false
+      - key: INVENTORY_DB_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      - key: KAFKA_SSL_TRUSTSTORE_TYPE
+        value: PEM
+      - key: KAFKA_SSL_TRUSTSTORE_CERTIFICATES
+        sync: false
+      - key: JWT_JWK_SET_URI
+        value: https://ecommerce-auth-service.onrender.com/.well-known/jwks.json
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://ecommerce-frontend.onrender.com
+
+  - type: web
+    name: ecommerce-orders-service
+    runtime: docker
+    dockerfilePath: ./orders-service/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: ORDERS_DB_URL
+        sync: false
+      - key: ORDERS_DB_USER
+        sync: false
+      - key: ORDERS_DB_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      - key: KAFKA_SSL_TRUSTSTORE_TYPE
+        value: PEM
+      - key: KAFKA_SSL_TRUSTSTORE_CERTIFICATES
+        sync: false
+      - key: JWT_JWK_SET_URI
+        value: https://ecommerce-auth-service.onrender.com/.well-known/jwks.json
+      - key: INVENTORY_BASE_URL
+        value: https://ecommerce-inventory-service.onrender.com
+      - key: AUTH_BASE_URL
+        value: https://ecommerce-auth-service.onrender.com
+      - key: SERVICE_ACCOUNT_EMAIL
+        value: orders-service@ecommerce.local
+      # Precisa ser o MESMO valor de AUTH_SERVICE_ACCOUNT_PASSWORD no
+      # ecommerce-auth-service, acima: são as duas pontas da mesma conta.
+      - key: SERVICE_ACCOUNT_PASSWORD
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://ecommerce-frontend.onrender.com
+
+  - type: web
+    name: ecommerce-notification-service
+    runtime: docker
+    dockerfilePath: ./notification-service/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: NOTIFICATION_DB_URL
+        sync: false
+      - key: NOTIFICATION_DB_USER
+        sync: false
+      - key: NOTIFICATION_DB_PASSWORD
+        sync: false
+      - key: KAFKA_BOOTSTRAP_SERVERS
+        sync: false
+      - key: KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+      - key: KAFKA_SASL_MECHANISM
+        value: SCRAM-SHA-256
+      - key: KAFKA_SASL_JAAS_CONFIG
+        sync: false
+      - key: KAFKA_SSL_TRUSTSTORE_TYPE
+        value: PEM
+      - key: KAFKA_SSL_TRUSTSTORE_CERTIFICATES
+        sync: false
+      - key: JWT_JWK_SET_URI
+        value: https://ecommerce-auth-service.onrender.com/.well-known/jwks.json
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://ecommerce-frontend.onrender.com
+
+  - type: web
+    name: ecommerce-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    envVars:
+      # O Render traduz estas variáveis em build args do Docker automaticamente
+      # (o Dockerfile já declara os ARGs correspondentes), então o bundle sai
+      # do build já apontando para os quatro serviços acima.
+      - key: VITE_AUTH_URL
+        value: https://ecommerce-auth-service.onrender.com
+      - key: VITE_ORDERS_URL
+        value: https://ecommerce-orders-service.onrender.com
+      - key: VITE_INVENTORY_URL
+        value: https://ecommerce-inventory-service.onrender.com
+      - key: VITE_NOTIFICATIONS_URL
+        value: https://ecommerce-notification-service.onrender.com

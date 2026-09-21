@@ -1,5 +1,8 @@
 server:
-  port: 8084
+  # ${PORT} é injetada por plataformas como o Render, que escolhem a porta em
+  # tempo de execução; localmente e no docker-compose ela não existe, e a
+  # aplicação cai no padrão de sempre.
+  port: ${PORT:8084}
 
 spring:
   application:
@@ -25,6 +28,16 @@ spring:
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    # Sem autenticação por padrão (o broker local e o do docker-compose não pedem).
+    # Um broker gerenciado na nuvem tipicamente exige SASL_SSL; as quatro
+    # propriedades abaixo ficam vazias e inertes até serem definidas.
+    security:
+      protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+    properties:
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
+      ssl.truststore.type: ${KAFKA_SSL_TRUSTSTORE_TYPE:}
+      ssl.truststore.certificates: ${KAFKA_SSL_TRUSTSTORE_CERTIFICATES:}
     consumer:
       group-id: notification-service
       auto-offset-reset: earliest
